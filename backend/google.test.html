@@ -1,0 +1,43 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Fixbee Google Login Test</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+
+<body>
+    <h2>Fixbee - Google Login Test</h2>
+
+    <div id="button-container"></div>
+
+    <pre id="result"></pre>
+
+    <script>
+        window.onload = function () {
+            google.accounts.id.initialize({
+                client_id: "1081807344748-v16cmol90jm62n441n3ef3hksts8a6np.apps.googleusercontent.com",
+                callback: handleCredentialResponse
+            });
+
+            google.accounts.id.renderButton(
+                document.getElementById("button-container"),
+                {
+                    theme: "outline",
+                    size: "large",
+                    text: "signin_with"
+                }
+            );
+        };
+
+        function handleCredentialResponse(response) {
+            document.getElementById("result").textContent =
+                "Google sign-in successful!\n\nID TOKEN:\n" +
+                response.credential;
+        }
+    </script>
+</body>
+
+</html>

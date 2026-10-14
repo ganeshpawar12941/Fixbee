@@ -20,6 +20,13 @@ const env = {
   // Helpers
   isDev: (process.env.NODE_ENV || "development") === "development",
   isProd: process.env.NODE_ENV === "production",
+
+  googleClientId: process.env.GOOGLE_CLIENT_ID,
+  collegeEmailDomain: process.env.COLLEGE_EMAIL_DOMAIN || "students.git.edu",
+  jwtAccessSecret: process.env.JWT_ACCESS_SECRET,
+  jwtRefreshSecret: process.env.JWT_REFRESH_SECRET,
+  jwtAccessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN || "15m",
+  jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "7d",
 };
 
 export default env;
