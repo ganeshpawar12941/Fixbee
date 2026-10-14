@@ -1,5 +1,6 @@
 import { Router } from "express";
 import ApiResponse from "../utils/ApiResponse.js";
+import authRoutes from "./auth.routes.js";
 
 const router = Router();
 
@@ -13,14 +14,7 @@ router.get("/health", (_req, res) => {
     .json(new ApiResponse(200, { uptime: process.uptime() }, "FixBee API is healthy 🐝"));
 });
 
-/**
- * Mount feature routers below as the project grows, e.g.
- *
- * import authRoutes  from "./auth.routes.js";
- * import userRoutes  from "./user.routes.js";
- *
- * router.use("/auth",  authRoutes);
- * router.use("/users", userRoutes);
- */
+router.use("/auth", authRoutes);
+
 
 export default router;
