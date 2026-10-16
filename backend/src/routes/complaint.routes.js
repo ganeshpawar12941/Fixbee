@@ -8,6 +8,7 @@ import {
   getComplaintByIdController,
   getManagementComplaintsController,
   addAdditionalInfoController,
+  updateComplaintStatusController,
 } from "../controllers/complaint.controller.js";
 
 const router = Router();
@@ -24,6 +25,8 @@ router.get("/management", getManagementComplaintsController);
 
 // Additional information for an existing complaint
 router.post("/:id/additional-info", addAdditionalInfoController);
+
+router.patch("/:id/status", updateComplaintStatusController);
 
 // Get one complaint by its ID
 router.get("/:id", getComplaintByIdController);

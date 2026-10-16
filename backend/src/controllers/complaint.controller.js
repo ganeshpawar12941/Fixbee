@@ -4,6 +4,7 @@ import {
     getComplaintById,
     getManagementComplaints,
     addAdditionalInfo,
+    updateComplaintStatus,
 } from "../services/complaint.service.js";
 
 import ApiResponse from "../utils/ApiResponse.js";
@@ -131,3 +132,22 @@ export {
     getManagementComplaintsController,
     addAdditionalInfoController,
 };
+export const updateComplaintStatusController = asyncHandler(
+    async (req, res) => {
+        const complaint = await updateComplaintStatus(
+            req.params.id,
+            req.body.status,
+            req.user
+        );
+
+        return res
+            .status(200)
+            .json(
+                new ApiResponse(
+                    200,
+                    complaint,
+                    "Complaint status updated successfully"
+                )
+            );
+    }
+);

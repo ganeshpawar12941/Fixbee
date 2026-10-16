@@ -22,6 +22,12 @@ const additionalInfoSchema = new mongoose.Schema(
             required: true,
         },
 
+        locationType: {
+            type: String,
+            enum: ["boys_hostel", "girls_hostel", "campus"],
+            required: true,
+        },
+
         createdAt: {
             type: Date,
             default: Date.now,

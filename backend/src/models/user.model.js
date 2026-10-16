@@ -34,6 +34,12 @@ const userSchema = new mongoose.Schema(
             default: "student",
         },
 
+        wardenType: {
+            type: String,
+            enum: ["boys_hostel", "girls_hostel", null],
+            default: null,
+        },
+
         isActive: {
             type: Boolean,
             default: true,
