@@ -1,6 +1,8 @@
 import Complaint from "../models/complaint.model.js";
 import ApiError from "../utils/ApiError.js";
 import User from "../models/user.model.js";
+import fs from "fs/promises";
+import { uploadImage } from "./cloudinary.services.js";
 
 const MANAGEMENT_ROLES = [
     "warden",
@@ -331,4 +333,89 @@ export const updateComplaintStatus = async (complaintId, newStatus, user) => {
     await complaint.save();
 
     return complaint;
+};
+
+export const resolveComplaint = async (
+    complaintId,
+    file,
+    user
+) => {
+    // 1. Check whether a resolution photo was uploaded
+    if (!file) {
+        throw new ApiError(
+            400,
+            "Resolution photo is required"
+        );
+    }
+
+    // 2. Find the complaint
+    const complaint = await Complaint.findById(complaintId);
+
+    if (!complaint) {
+        await fs.unlink(file.path).catch(() => { });
+        throw new ApiError(404, "Complaint not found");
+    }
+
+    // 3. Check management permissions
+    if (!["warden", "infrastructure_dean", "admin"].includes(user.role)) {
+        await fs.unlink(file.path).catch(() => { });
+        throw new ApiError(
+            403,
+            "You are not authorized to resolve complaints"
+        );
+    }
+
+    if (
+        user.role === "warden" &&
+        complaint.assignedManagement?.toString() !== user.id
+    ) {
+        await fs.unlink(file.path).catch(() => { });
+        throw new ApiError(
+            403,
+            "You can only resolve complaints assigned to you"
+        );
+    }
+
+    if (
+        user.role === "infrastructure_dean" &&
+        (
+            complaint.assignedManagement?.toString() !== user.id ||
+            complaint.locationType !== "campus"
+        )
+    ) {
+        await fs.unlink(file.path).catch(() => { });
+        throw new ApiError(
+            403,
+            "You can only resolve assigned campus complaints"
+        );
+    }
+
+    // 4. Complaint must be in progress
+    if (complaint.status !== "in_progress") {
+        await fs.unlink(file.path).catch(() => { });
+        throw new ApiError(
+            400,
+            "Only complaints in progress can be resolved"
+        );
+    }
+
+    try {
+        // 5. Upload the resolution photo to Cloudinary
+        const image = await uploadImage(
+            file.path,
+            "fixbee/resolutions"
+        );
+
+        // 6. Update the complaint
+        complaint.resolutionPhoto = image.url;
+        complaint.status = "resolved";
+        complaint.resolvedAt = new Date();
+
+        await complaint.save();
+
+        return complaint;
+    } finally {
+        // 7. Remove the temporary local file
+        await fs.unlink(file.path).catch(() => { });
+    }
 };

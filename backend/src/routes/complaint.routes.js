@@ -1,5 +1,5 @@
 import { Router } from "express";
-
+import upload from "../middlewares/upload.middleware.js";
 import protect from "../middlewares/auth.middleware.js";
 
 import {
@@ -9,6 +9,7 @@ import {
   getManagementComplaintsController,
   addAdditionalInfoController,
   updateComplaintStatusController,
+  resolveComplaintController,
 } from "../controllers/complaint.controller.js";
 
 const router = Router();
@@ -30,5 +31,11 @@ router.patch("/:id/status", updateComplaintStatusController);
 
 // Get one complaint by its ID
 router.get("/:id", getComplaintByIdController);
+
+router.patch(
+  "/:id/resolve",
+  upload.single("resolutionPhoto"),
+  resolveComplaintController
+);
 
 export default router;

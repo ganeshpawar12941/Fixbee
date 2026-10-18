@@ -8,6 +8,7 @@ import {
 } from "../services/complaint.service.js";
 
 import ApiResponse from "../utils/ApiResponse.js";
+import { resolveComplaint } from "../services/complaint.service.js";
 import asyncHandler from "../utils/asyncHandler.js";
 
 // Create a new complaint
@@ -149,5 +150,23 @@ export const updateComplaintStatusController = asyncHandler(
                     "Complaint status updated successfully"
                 )
             );
+    }
+);
+
+export const resolveComplaintController = asyncHandler(
+    async (req, res) => {
+        const complaint = await resolveComplaint(
+            req.params.id,
+            req.file,
+            req.user
+        );
+
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                complaint,
+                "Complaint resolved successfully"
+            )
+        );
     }
 );
