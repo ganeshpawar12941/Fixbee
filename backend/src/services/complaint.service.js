@@ -1,5 +1,9 @@
 import Complaint from "../models/complaint.model.js";
 import ApiError from "../utils/ApiError.js";
+import User from "../models/user.model.js";
+import fs from "fs/promises";
+import { uploadImage } from "./cloudinary.services.js";
+import { validateComplaintImage } from "./ai.service.js";
 
 const MANAGEMENT_ROLES = [
     "warden",
@@ -8,21 +12,22 @@ const MANAGEMENT_ROLES = [
 ];
 
 // Check whether a user can access a complaint
-const canAccessComplaint = (complaint, user) => {
-    // The student who created the complaint can access it
-    if (complaint.student.toString() === user.id) {
-        return true;
-    }
 
-    // Admin and infrastructure dean can access all complaints
+const canAccessComplaint = (complaint, user) => {
+    // Student can access only their own complaints
     if (
-        user.role === "admin" ||
-        user.role === "infrastructure_dean"
+        user.role === "student" &&
+        complaint.student.toString() === user.id
     ) {
         return true;
     }
 
-    // A warden can access complaints assigned to them
+    // Admin can access all complaints
+    if (user.role === "admin") {
+        return true;
+    }
+
+    // Warden can access only complaints assigned to them
     if (
         user.role === "warden" &&
         complaint.assignedManagement?.toString() === user.id
@@ -30,30 +35,120 @@ const canAccessComplaint = (complaint, user) => {
         return true;
     }
 
+    // Infrastructure dean can access only their assigned campus complaints
+    if (
+        user.role === "infrastructure_dean" &&
+        complaint.assignedManagement?.toString() === user.id &&
+        complaint.locationType === "campus"
+    ) {
+        return true;
+    }
+
     return false;
 };
 
+
+
 // Create a complaint
-const createComplaint = async (data, user) => {
+const createComplaint = async (data, file, user) => {
     if (user.role !== "student") {
-        throw new ApiError(
-            403,
-            "Only students can submit complaints"
-        );
+        throw new ApiError(403, "Only students can create complaints");
     }
 
-    const complaint = await Complaint.create({
-        title: data.title,
-        description: data.description,
-        category: data.category,
-        imageUrl: data.imageUrl,
-        severity: data.severity || "medium",
+    if (!file) {
+        throw new ApiError(400, "Complaint image is required");
+    }
 
-        // Never trust the student ID supplied by the frontend
-        student: user.id,
-    });
+    try {
+        // 1. Validate image using Gemini
+        const aiResult = await validateComplaintImage(file);
 
-    return complaint;
+        if (aiResult.status === "invalid") {
+            throw new ApiError(
+                400,
+                aiResult.reason || "Invalid complaint image"
+            );
+        }
+
+        if (aiResult.status === "uncertain") {
+            throw new ApiError(
+                422,
+                "Unable to verify this image. Please capture another photo."
+            );
+        }
+
+        if (aiResult.status !== "valid") {
+            throw new ApiError(503, "Image validation failed");
+        }
+
+        // 2. Extract complaint details
+        const {
+            title,
+            description,
+            category,
+            locationType,
+            severity
+        } = data;
+
+
+        
+        if (!["boys_hostel", "girls_hostel", "campus"].includes(locationType)) {
+            throw new ApiError(400, "Invalid complaint location");
+        }
+
+        // 3. Find assigned management
+        let assignedManagement;
+
+        if (locationType === "boys_hostel") {
+            assignedManagement = await User.findOne({
+                role: "warden",
+                wardenType: "boys_hostel",
+                isActive: true,
+            });
+        } else if (locationType === "girls_hostel") {
+            assignedManagement = await User.findOne({
+                role: "warden",
+                wardenType: "girls_hostel",
+                isActive: true,
+            });
+        } else {
+            assignedManagement = await User.findOne({
+                role: "infrastructure_dean",
+                isActive: true,
+            });
+        }
+
+        if (!assignedManagement) {
+            throw new ApiError(
+                503,
+                "No active management member is configured for this complaint location"
+            );
+        }
+
+        // 4. Upload validated image to Cloudinary
+        const uploadedImage = await uploadImage(
+            file.path,
+            "fixbee/complaints"
+        );
+
+        // 5. Create complaint in MongoDB
+        const complaint = await Complaint.create({
+            title,
+            description,
+            category,
+            locationType,
+            imageUrl: uploadedImage.url,
+            severity: severity || "medium",
+            student: user.id,
+            assignedManagement: assignedManagement._id,
+        });
+
+        return complaint;
+
+    } finally {
+        // 6. Always remove temporary image
+        await fs.unlink(file.path).catch(() => { });
+    }
 };
 
 // Get complaints submitted by the logged-in student
@@ -120,12 +215,22 @@ const getManagementComplaints = async (
 
     let filter = {};
 
-    // Wardens can see complaints assigned to them
+    // Wardens see only complaints assigned to them
     if (user.role === "warden") {
         filter = {
             assignedManagement: user.id,
         };
     }
+
+    // Infrastructure dean sees only assigned campus complaints
+    else if (user.role === "infrastructure_dean") {
+        filter = {
+            assignedManagement: user.id,
+            locationType: "campus",
+        };
+    }
+
+    // Admin can see all complaints
 
     const complaints = await Complaint.find(filter)
         .sort({ createdAt: -1 })
@@ -144,6 +249,8 @@ const getManagementComplaints = async (
         },
     };
 };
+
+
 
 // Add additional information to a complaint
 const addAdditionalInfo = async (
@@ -205,4 +312,159 @@ export {
     getComplaintById,
     getManagementComplaints,
     addAdditionalInfo,
+};
+
+export const updateComplaintStatus = async (complaintId, newStatus, user) => {
+    // 1. Only management can update complaint status
+    const allowedRoles = ["warden", "infrastructure_dean", "admin"];
+
+    if (!allowedRoles.includes(user.role)) {
+        throw new ApiError(403, "You are not authorized to update complaint status");
+    }
+
+    // 2. Validate the requested status
+    const allowedStatuses = [
+        "under_review",
+        "in_progress",
+        "resolved",
+        "rejected",
+    ];
+
+    if (!allowedStatuses.includes(newStatus)) {
+        throw new ApiError(400, "Invalid complaint status");
+    }
+
+    // 3. Find the complaint
+    const complaint = await Complaint.findById(complaintId);
+
+    if (!complaint) {
+        throw new ApiError(404, "Complaint not found");
+    }
+
+    // 4. Check whether this management user can access the complaint
+    if (user.role === "warden") {
+        if (
+            !complaint.assignedManagement ||
+            complaint.assignedManagement.toString() !== user.id
+        ) {
+            throw new ApiError(
+                403,
+                "You can only update complaints assigned to you"
+            );
+        }
+    }
+
+    // 5. Define valid status transitions
+    const allowedTransitions = {
+        submitted: ["under_review", "rejected"],
+        under_review: ["in_progress", "rejected"],
+        in_progress: ["resolved"],
+        resolved: [],
+        rejected: [],
+    };
+
+    // 6. Prevent invalid status changes
+    if (!allowedTransitions[complaint.status]?.includes(newStatus)) {
+        throw new ApiError(
+            400,
+            `Cannot change status from ${complaint.status} to ${newStatus}`
+        );
+    }
+
+    // 7. Update the complaint
+    complaint.status = newStatus;
+
+    // Record when the complaint is resolved
+    if (newStatus === "resolved") {
+        complaint.resolvedAt = new Date();
+    }
+
+    await complaint.save();
+
+    return complaint;
+};
+
+export const resolveComplaint = async (
+    complaintId,
+    file,
+    user
+) => {
+    // 1. Check whether a resolution photo was uploaded
+    if (!file) {
+        throw new ApiError(
+            400,
+            "Resolution photo is required"
+        );
+    }
+
+    // 2. Find the complaint
+    const complaint = await Complaint.findById(complaintId);
+
+    if (!complaint) {
+        await fs.unlink(file.path).catch(() => { });
+        throw new ApiError(404, "Complaint not found");
+    }
+
+    // 3. Check management permissions
+    if (!["warden", "infrastructure_dean", "admin"].includes(user.role)) {
+        await fs.unlink(file.path).catch(() => { });
+        throw new ApiError(
+            403,
+            "You are not authorized to resolve complaints"
+        );
+    }
+
+    if (
+        user.role === "warden" &&
+        complaint.assignedManagement?.toString() !== user.id
+    ) {
+        await fs.unlink(file.path).catch(() => { });
+        throw new ApiError(
+            403,
+            "You can only resolve complaints assigned to you"
+        );
+    }
+
+    if (
+        user.role === "infrastructure_dean" &&
+        (
+            complaint.assignedManagement?.toString() !== user.id ||
+            complaint.locationType !== "campus"
+        )
+    ) {
+        await fs.unlink(file.path).catch(() => { });
+        throw new ApiError(
+            403,
+            "You can only resolve assigned campus complaints"
+        );
+    }
+
+    // 4. Complaint must be in progress
+    if (complaint.status !== "in_progress") {
+        await fs.unlink(file.path).catch(() => { });
+        throw new ApiError(
+            400,
+            "Only complaints in progress can be resolved"
+        );
+    }
+
+    try {
+        // 5. Upload the resolution photo to Cloudinary
+        const image = await uploadImage(
+            file.path,
+            "fixbee/resolutions"
+        );
+
+        // 6. Update the complaint
+        complaint.resolutionPhoto = image.url;
+        complaint.status = "resolved";
+        complaint.resolvedAt = new Date();
+
+        await complaint.save();
+
+        return complaint;
+    } finally {
+        // 7. Remove the temporary local file
+        await fs.unlink(file.path).catch(() => { });
+    }
 };

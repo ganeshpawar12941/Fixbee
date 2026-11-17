@@ -4,16 +4,28 @@ import {
     getComplaintById,
     getManagementComplaints,
     addAdditionalInfo,
+    updateComplaintStatus,
 } from "../services/complaint.service.js";
 
 import ApiResponse from "../utils/ApiResponse.js";
+import { resolveComplaint } from "../services/complaint.service.js";
 import asyncHandler from "../utils/asyncHandler.js";
+
+import fs from "fs/promises";
+
+import {
+    validateComplaintImage,
+    generateComplaintDetails,
+} from "../services/ai.service.js";
+
+import ApiError from "../utils/ApiError.js";
 
 // Create a new complaint
 const createComplaintController = asyncHandler(
     async (req, res) => {
         const complaint = await createComplaint(
             req.body,
+            req.file,
             req.user
         );
 
@@ -129,5 +141,108 @@ export {
     getMyComplaintsController,
     getComplaintByIdController,
     getManagementComplaintsController,
-    addAdditionalInfoController,
+    addAdditionalInfoController
 };
+export const updateComplaintStatusController = asyncHandler(
+    async (req, res) => {
+        const complaint = await updateComplaintStatus(
+            req.params.id,
+            req.body.status,
+            req.user
+        );
+
+        return res
+            .status(200)
+            .json(
+                new ApiResponse(
+                    200,
+                    complaint,
+                    "Complaint status updated successfully"
+                )
+            );
+    }
+);
+
+export const resolveComplaintController = asyncHandler(
+    async (req, res) => {
+        const complaint = await resolveComplaint(
+            req.params.id,
+            req.file,
+            req.user
+        );
+
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                complaint,
+                "Complaint resolved successfully"
+            )
+        );
+    }
+);
+
+// Generate complaint details using AI
+export const generateComplaintDetailsController = asyncHandler(
+    async (req, res) => {
+        const file = req.file;
+
+        try {
+            if (req.user.role !== "student") {
+                throw new ApiError(
+                    403,
+                    "Only students can generate complaint details"
+                );
+            }
+
+            if (!file) {
+                throw new ApiError(400, "Complaint image is required");
+            }
+
+            const { description } = req.body;
+
+            if (!description || !description.trim()) {
+                throw new ApiError(
+                    400,
+                    "Please provide a short complaint description"
+                );
+            }
+
+            // Step 1: Validate image
+            const imageResult = await validateComplaintImage(file);
+
+            if (imageResult.status === "invalid") {
+                throw new ApiError(
+                    400,
+                    imageResult.reason || "Invalid complaint image"
+                );
+            }
+
+            if (imageResult.status === "uncertain") {
+                throw new ApiError(
+                    422,
+                    imageResult.reason || "Unable to verify this image"
+                );
+            }
+
+            // Step 2: Generate complaint details
+            const details = await generateComplaintDetails(
+                file,
+                description
+            );
+
+            return res.status(200).json(
+                new ApiResponse(
+                    200,
+                    details,
+                    "Complaint details generated successfully"
+                )
+            );
+
+        } finally {
+            // Always delete temporary uploaded image
+            if (file?.path) {
+                await fs.unlink(file.path).catch(() => {});
+            }
+        }
+    }
+);

@@ -34,6 +34,12 @@ const userSchema = new mongoose.Schema(
             default: "student",
         },
 
+        wardenType: {
+            type: String,
+            enum: ["boys_hostel", "girls_hostel", null],
+            default: null,
+        },
+
         isActive: {
             type: Boolean,
             default: true,
@@ -43,10 +49,24 @@ const userSchema = new mongoose.Schema(
             type: Date,
             default: null,
         },
+
         refreshTokenHash: {
             type: String,
             default: null,
             select: false,
+        },
+
+        // Number of confirmed invalid-image attempts
+        invalidImageStrikes: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+
+        // Date until which complaint submissions are blocked
+        complaintBlockedUntil: {
+            type: Date,
+            default: null,
         },
     },
     {
@@ -57,3 +77,4 @@ const userSchema = new mongoose.Schema(
 const User = mongoose.model("User", userSchema);
 
 export default User;
+
