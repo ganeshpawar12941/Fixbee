@@ -1,5 +1,7 @@
 import { Router } from "express";
-import upload from "../middlewares/upload.middleware.js";
+import upload, {
+  verifyUploadedImage,
+} from "../middlewares/upload.middleware.js";
 import protect from "../middlewares/auth.middleware.js";
 
 import {
@@ -10,6 +12,7 @@ import {
   addAdditionalInfoController,
   updateComplaintStatusController,
   resolveComplaintController,
+  generateComplaintDetailsController,
 } from "../controllers/complaint.controller.js";
 
 const router = Router();
@@ -17,8 +20,22 @@ const router = Router();
 // All complaint routes require authentication
 router.use(protect);
 
+
 // Student routes
-router.post("/", createComplaintController);
+
+router.post(
+    "/generate-details",
+    upload.single("complaintImage"),
+    verifyUploadedImage,
+    generateComplaintDetailsController
+);
+
+router.post(
+  "/",
+  upload.single("complaintImage"),
+  verifyUploadedImage,
+  createComplaintController
+);
 router.get("/my", getMyComplaintsController);
 
 // Management routes

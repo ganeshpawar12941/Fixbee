@@ -136,6 +136,24 @@ const complaintSchema = new mongoose.Schema(
             type: Date,
             default: null,
         },
+
+        imageValidation: {
+            status: {
+                type: String,
+                enum: ["valid", "invalid", "uncertain", "pending"],
+                default: "pending",
+            },
+
+            reason: {
+                type: String,
+                default: null,
+            },
+
+            validatedAt: {
+                type: Date,
+                default: null,
+            },
+        },
     },
     {
         timestamps: true,

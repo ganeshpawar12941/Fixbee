@@ -3,6 +3,7 @@ import ApiError from "../utils/ApiError.js";
 import User from "../models/user.model.js";
 import fs from "fs/promises";
 import { uploadImage } from "./cloudinary.services.js";
+import { validateComplaintImage } from "./ai.service.js";
 
 const MANAGEMENT_ROLES = [
     "warden",
@@ -49,57 +50,105 @@ const canAccessComplaint = (complaint, user) => {
 
 
 // Create a complaint
-const createComplaint = async (data, user) => {
+const createComplaint = async (data, file, user) => {
     if (user.role !== "student") {
         throw new ApiError(403, "Only students can create complaints");
     }
 
-    const { title, description, category, locationType, imageUrl, severity } = data;
-
-    if (!["boys_hostel", "girls_hostel", "campus"].includes(locationType)) {
-        throw new ApiError(400, "Invalid complaint location");
+    if (!file) {
+        throw new ApiError(400, "Complaint image is required");
     }
 
-    let assignedManagement;
+    try {
+        // 1. Validate image using Gemini
+        const aiResult = await validateComplaintImage(file);
 
-    if (locationType === "boys_hostel") {
-        assignedManagement = await User.findOne({
-            role: "warden",
-            wardenType: "boys_hostel",
-            isActive: true,
-        });
-    } else if (locationType === "girls_hostel") {
-        assignedManagement = await User.findOne({
-            role: "warden",
-            wardenType: "girls_hostel",
-            isActive: true,
-        });
-    } else {
-        assignedManagement = await User.findOne({
-            role: "infrastructure_dean",
-            isActive: true,
-        });
-    }
+        if (aiResult.status === "invalid") {
+            throw new ApiError(
+                400,
+                aiResult.reason || "Invalid complaint image"
+            );
+        }
 
-    if (!assignedManagement) {
-        throw new ApiError(
-            503,
-            "No active management member is configured for this complaint location"
+        if (aiResult.status === "uncertain") {
+            throw new ApiError(
+                422,
+                "Unable to verify this image. Please capture another photo."
+            );
+        }
+
+        if (aiResult.status !== "valid") {
+            throw new ApiError(503, "Image validation failed");
+        }
+
+        // 2. Extract complaint details
+        const {
+            title,
+            description,
+            category,
+            locationType,
+            severity
+        } = data;
+
+
+        
+        if (!["boys_hostel", "girls_hostel", "campus"].includes(locationType)) {
+            throw new ApiError(400, "Invalid complaint location");
+        }
+
+        // 3. Find assigned management
+        let assignedManagement;
+
+        if (locationType === "boys_hostel") {
+            assignedManagement = await User.findOne({
+                role: "warden",
+                wardenType: "boys_hostel",
+                isActive: true,
+            });
+        } else if (locationType === "girls_hostel") {
+            assignedManagement = await User.findOne({
+                role: "warden",
+                wardenType: "girls_hostel",
+                isActive: true,
+            });
+        } else {
+            assignedManagement = await User.findOne({
+                role: "infrastructure_dean",
+                isActive: true,
+            });
+        }
+
+        if (!assignedManagement) {
+            throw new ApiError(
+                503,
+                "No active management member is configured for this complaint location"
+            );
+        }
+
+        // 4. Upload validated image to Cloudinary
+        const uploadedImage = await uploadImage(
+            file.path,
+            "fixbee/complaints"
         );
+
+        // 5. Create complaint in MongoDB
+        const complaint = await Complaint.create({
+            title,
+            description,
+            category,
+            locationType,
+            imageUrl: uploadedImage.url,
+            severity: severity || "medium",
+            student: user.id,
+            assignedManagement: assignedManagement._id,
+        });
+
+        return complaint;
+
+    } finally {
+        // 6. Always remove temporary image
+        await fs.unlink(file.path).catch(() => { });
     }
-
-    const complaint = await Complaint.create({
-        title,
-        description,
-        category,
-        locationType,
-        imageUrl,
-        severity: severity || "medium",
-        student: user.id,
-        assignedManagement: assignedManagement._id,
-    });
-
-    return complaint;
 };
 
 // Get complaints submitted by the logged-in student
