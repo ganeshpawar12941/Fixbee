@@ -1,32 +1,25 @@
-import { fileTypeFromFile } from "file-type";
-import { validateComplaintImage } from "./src/services/ai.service.js";
+import "dotenv/config";
 
-const testAI = async () => {
+import  {sendEmail}  from "./src/services/email.service.js";
+
+const testEmail = async () => {
     try {
-        const imagePath = "./test-assets/maintenance.jpeg";
+        await sendEmail({
+            to: process.env.EMAIL_USER,
 
-        // Detect actual image type
-        const detectedType = await fileTypeFromFile(imagePath);
+            subject: "Fixbee Email Test",
 
-        if (!detectedType) {
-            throw new Error("Invalid image file");
-        }
+            html: `
+                <h2>Welcome to Fixbee!</h2>
+                <p>Your email notification system is working successfully.</p>
+                <p>This is a test email from the Fixbee backend.</p>
+            `,
+        });
 
-        const file = {
-            path: imagePath,
-            verifiedMimeType: detectedType.mime,
-        };
-
-        console.log("Testing Grok AI...");
-
-        const result = await validateComplaintImage(file);
-
-        console.log("\nAI Validation Result:");
-        console.log(result);
-
+        console.log("Test email sent successfully!");
     } catch (error) {
-        console.error("\nTest failed:", error.message);
+        console.error("Email test failed:", error.message);
     }
 };
 
-testAI();
+testEmail();

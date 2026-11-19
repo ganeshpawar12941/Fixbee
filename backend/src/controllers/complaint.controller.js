@@ -5,6 +5,8 @@ import {
     getManagementComplaints,
     addAdditionalInfo,
     updateComplaintStatus,
+    ensureStudentCanSubmitComplaint,
+    recordInvalidImageStrike
 } from "../services/complaint.service.js";
 
 import ApiResponse from "../utils/ApiResponse.js";
@@ -187,6 +189,9 @@ export const generateComplaintDetailsController = asyncHandler(
         const file = req.file;
 
         try {
+
+            await ensureStudentCanSubmitComplaint(req.user.id);
+
             if (req.user.role !== "student") {
                 throw new ApiError(
                     403,
@@ -211,9 +216,18 @@ export const generateComplaintDetailsController = asyncHandler(
             const imageResult = await validateComplaintImage(file);
 
             if (imageResult.status === "invalid") {
+                const strikeResult = await recordInvalidImageStrike(req.user.id);
+
+                if (strikeResult.blocked) {
+                    throw new ApiError(
+                        403,
+                        `You have submitted 4 invalid images. Your complaint submissions are blocked for 7 days, until ${strikeResult.blockedUntil.toLocaleString("en-IN")}.`
+                    );
+                }
+
                 throw new ApiError(
                     400,
-                    imageResult.reason || "Invalid complaint image"
+                    `${imageResult.reason || "Invalid complaint image"}. Warning: ${strikeResult.strikes}/4 invalid image attempts.`
                 );
             }
 
@@ -230,6 +244,14 @@ export const generateComplaintDetailsController = asyncHandler(
                 description
             );
 
+            if (details.status === "mismatch") {
+                throw new ApiError(422, details.reason);
+            }
+
+            if (details.status === "uncertain") {
+                throw new ApiError(422, details.reason);
+            }
+
             return res.status(200).json(
                 new ApiResponse(
                     200,
@@ -241,8 +263,9 @@ export const generateComplaintDetailsController = asyncHandler(
         } finally {
             // Always delete temporary uploaded image
             if (file?.path) {
-                await fs.unlink(file.path).catch(() => {});
+                await fs.unlink(file.path).catch(() => { });
             }
         }
     }
 );
+

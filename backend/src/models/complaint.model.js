@@ -28,6 +28,7 @@ const complaintSchema = new mongoose.Schema(
         },
 
         // Complaint category
+        // Complaint category
         category: {
             type: String,
             enum: [
@@ -37,6 +38,10 @@ const complaintSchema = new mongoose.Schema(
                 "cleaning",
                 "furniture",
                 "water_supply",
+                "washroom",
+                "waste_management",
+                "garden_outdoor",
+                "safety",
                 "other",
             ],
             required: true,

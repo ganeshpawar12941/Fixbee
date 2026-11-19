@@ -190,49 +190,105 @@ const generateComplaintDetails = async (file, studentDescription) => {
     const base64Image = imageBuffer.toString("base64");
     const mimeType = file.verifiedMimeType;
 
-    const prompt = `
-You are Fixbee's AI complaint assistant for a college campus.
+const prompt = `
+You are an AI image validation assistant for Fixbee,
+a college campus maintenance and cleanliness management application.
 
-Analyze the uploaded maintenance image and the student's description.
+Your task is to determine whether the uploaded image
+shows a genuine campus maintenance, cleanliness,
+hygiene, infrastructure, or safety issue.
 
-Student's description:
-"${studentDescription.trim()}"
+Fixbee accepts complaints from all campus areas, including:
+- Classrooms
+- Laboratories
+- Libraries
+- Boys and girls hostels
+- Bathrooms and washrooms
+- Corridors and staircases
+- Canteens
+- Gardens and outdoor areas
+- Parking areas
+- Other common campus spaces
 
-Generate professional complaint details based ONLY on the visible
-image and the information provided by the student.
+VALID COMPLAINT EXAMPLES:
+
+1. Electrical:
+   Broken fans, damaged lights, exposed wires,
+   faulty switches.
+
+2. Plumbing:
+   Leaking taps, broken pipes, water leakage,
+   drainage problems.
+
+3. Civil:
+   Damaged walls, ceilings, floors, doors,
+   windows and infrastructure.
+
+4. Cleaning:
+   Dirty classrooms, unclean corridors,
+   dirty laboratories and common areas.
+
+5. Furniture:
+   Broken chairs, desks, benches and cupboards.
+
+6. Water Supply:
+   No water supply, low water pressure,
+   water availability problems.
+
+7. Washroom:
+   Dirty toilets, blocked toilets, broken flushes,
+   bathroom hygiene issues.
+
+8. Waste Management:
+   Overflowing dustbins, garbage accumulation,
+   improper waste disposal.
+
+9. Garden and Outdoor:
+   Overgrown grass, unmaintained gardens,
+   damaged pathways.
+
+10. Safety:
+    Exposed electrical wires, damaged railings,
+    and visible campus safety hazards.
+
+VALIDATION RULES:
+
+1. Accept both infrastructure repair and cleanliness complaints.
+2. A complaint does not need to show broken infrastructure.
+3. Dirty bathrooms, garbage accumulation and unclean areas
+   are valid maintenance complaints.
+4. Mark valid only when a relevant campus maintenance
+   or cleanliness issue is clearly visible.
+5. Mark invalid when the image is clearly unrelated
+   to campus maintenance or cleanliness.
+6. Mark uncertain when the image is blurry, dark,
+   ambiguous or difficult to evaluate.
+7. Never invent damage or cleanliness problems.
+8. Do not reject an image merely because it shows
+   a normal campus area; evaluate the actual visible condition.
 
 Return exactly one JSON object:
 
 {
-    "title": "Short complaint title",
-    "description": "Detailed professional complaint description",
-    "category": "plumbing",
-    "severity": "medium"
+    "status": "valid",
+    "reason": "Short explanation"
 }
 
-Allowed categories:
-- electrical
-- plumbing
-- civil
-- cleaning
-- furniture
-- water_supply
-- other
+OR
 
-Allowed severity:
-- low
-- medium
-- high
+{
+    "status": "invalid",
+    "reason": "Short explanation"
+}
 
-Rules:
-1. Never invent damage, causes, or facts.
-2. Use the student's description along with visible image evidence.
-3. Keep the title clear and concise.
-4. Write a professional description.
-5. Do not exaggerate the severity.
-6. Choose the most appropriate category.
-7. If the exact cause is unknown, do not assume it.
-8. Return JSON only. No markdown.
+OR
+
+{
+    "status": "uncertain",
+    "reason": "Short explanation"
+}
+
+Return JSON only. No markdown.
 `;
 
     const response = await fetch(
@@ -289,6 +345,24 @@ Rules:
 
     const details = JSON.parse(outputText);
 
+    if (details.status === "mismatch") {
+        return {
+            status: "mismatch",
+            reason: details.reason,
+        };
+    }
+
+    if (details.status === "uncertain") {
+        return {
+            status: "uncertain",
+            reason: details.reason,
+        };
+    }
+
+    if (details.status !== "valid") {
+        throw new Error("Invalid Gemini response format");
+    }
+
     const allowedCategories = [
         "electrical",
         "plumbing",
@@ -296,6 +370,10 @@ Rules:
         "cleaning",
         "furniture",
         "water_supply",
+        "washroom",
+        "waste_management",
+        "garden_outdoor",
+        "safety",
         "other",
     ];
 
@@ -330,6 +408,8 @@ Rules:
     }
 
     return {
+        status: "valid",
+        reason: details.reason,
         title: details.title.trim(),
         description: details.description.trim(),
         category: details.category,
