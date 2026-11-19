@@ -4,12 +4,99 @@ import User from "../models/user.model.js";
 import fs from "fs/promises";
 import { uploadImage } from "./cloudinary.services.js";
 import { validateComplaintImage } from "./ai.service.js";
+import { createNotificationSafely } from "./notification.service.js";
 
 const MANAGEMENT_ROLES = [
     "warden",
     "infrastructure_dean",
     "admin",
 ];
+
+const MAX_INVALID_STRIKES = 4;
+const BLOCK_DURATION_DAYS = 7;
+
+// Check whether a student can submit complaints
+export const ensureStudentCanSubmitComplaint = async (userId) => {
+    const user = await User.findById(userId);
+
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    const now = new Date();
+
+    // Student is currently blocked
+    if (user.complaintBlockedUntil > now) {
+        throw new ApiError(
+            403,
+            `Your complaint submissions are blocked until ${user.complaintBlockedUntil.toLocaleString("en-IN")}`
+        );
+    }
+
+    // Reset strikes after the blocking period expires
+    if (
+        user.complaintBlockedUntil &&
+        user.complaintBlockedUntil <= now
+    ) {
+        user.invalidImageStrikes = 0;
+        user.complaintBlockedUntil = null;
+
+        await user.save();
+    }
+};
+
+// Record a confirmed invalid image
+export const recordInvalidImageStrike = async (userId) => {
+    const user = await User.findByIdAndUpdate(
+        userId,
+        { $inc: { invalidImageStrikes: 1 } },
+        { new: true }
+    );
+
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    const strikes = user.invalidImageStrikes;
+
+    // Fourth invalid attempt: block for 7 days
+    if (strikes >= MAX_INVALID_STRIKES) {
+        const blockedUntil = new Date(
+            Date.now() + BLOCK_DURATION_DAYS * 24 * 60 * 60 * 1000
+        );
+
+        await User.findByIdAndUpdate(userId, {
+            $set: { complaintBlockedUntil: blockedUntil }
+        });
+
+        await createNotificationSafely({
+            recipient: userId,
+            title: "Complaint Submission Blocked",
+            message: `You have submitted 4 invalid images. Your complaint submissions are blocked for 7 days, until ${blockedUntil.toLocaleString("en-IN")}.`,
+            type: "complaint_blocked",
+        });
+
+        return {
+            strikes,
+            blocked: true,
+            blockedUntil,
+        };
+    }
+
+    // First, second and third invalid attempts
+    await createNotificationSafely({
+        recipient: userId,
+        title: strikes === 3 ? "Final Warning" : "Invalid Image Warning",
+        message: `Your uploaded image was not valid for a campus maintenance or cleanliness complaint. This is warning ${strikes}/4. After 4 invalid image attempts, complaint submissions will be blocked for 7 days.`,
+        type: "invalid_image_warning",
+    });
+
+    return {
+        strikes,
+        blocked: false,
+        blockedUntil: null,
+    };
+};
 
 // Check whether a user can access a complaint
 
@@ -60,13 +147,25 @@ const createComplaint = async (data, file, user) => {
     }
 
     try {
+
+        await ensureStudentCanSubmitComplaint(user.id);
+
         // 1. Validate image using Gemini
         const aiResult = await validateComplaintImage(file);
 
         if (aiResult.status === "invalid") {
+            const strikeResult = await recordInvalidImageStrike(user.id);
+
+            if (strikeResult.blocked) {
+                throw new ApiError(
+                    403,
+                    `You have submitted 4 invalid images. Your complaint submissions are blocked for 7 days, until ${strikeResult.blockedUntil.toLocaleString("en-IN")}.`
+                );
+            }
+
             throw new ApiError(
                 400,
-                aiResult.reason || "Invalid complaint image"
+                `${aiResult.reason || "Invalid complaint image"}. Warning: ${strikeResult.strikes}/4 invalid image attempts.`
             );
         }
 
@@ -91,7 +190,7 @@ const createComplaint = async (data, file, user) => {
         } = data;
 
 
-        
+
         if (!["boys_hostel", "girls_hostel", "campus"].includes(locationType)) {
             throw new ApiError(400, "Invalid complaint location");
         }
@@ -141,6 +240,24 @@ const createComplaint = async (data, file, user) => {
             severity: severity || "medium",
             student: user.id,
             assignedManagement: assignedManagement._id,
+        });
+
+        // Notify student
+        await createNotificationSafely({
+            recipient: user.id,
+            title: "Complaint Submitted",
+            message: `Your complaint "${complaint.title}" has been submitted successfully.`,
+            type: "complaint_submitted",
+            relatedComplaint: complaint._id,
+        });
+
+        // Notify assigned management
+        await createNotificationSafely({
+            recipient: assignedManagement._id,
+            title: "New Complaint Assigned",
+            message: `A new ${complaint.category} complaint "${complaint.title}" has been assigned to you.`,
+            type: "complaint_submitted",
+            relatedComplaint: complaint._id,
         });
 
         return complaint;
@@ -303,6 +420,28 @@ const addAdditionalInfo = async (
 
     await complaint.save();
 
+    // Notify the opposite party
+    let recipient;
+    let notificationTitle;
+
+    if (user.role === "student") {
+        recipient = complaint.assignedManagement;
+        notificationTitle = "New Additional Information";
+    } else {
+        recipient = complaint.student;
+        notificationTitle = "Additional Information Requested";
+    }
+
+    if (recipient) {
+        await createNotificationSafely({
+            recipient,
+            title: notificationTitle,
+            message: `New information has been added to your complaint "${complaint.title}".`,
+            type: "additional_info_requested",
+            relatedComplaint: complaint._id,
+        });
+    }
+
     return complaint;
 };
 
@@ -380,6 +519,31 @@ export const updateComplaintStatus = async (complaintId, newStatus, user) => {
     }
 
     await complaint.save();
+
+    // 8. Prepare notification message
+    const formattedStatus = newStatus
+        .replace("_", " ")
+        .replace(/\b\w/g, char => char.toUpperCase());
+
+    let notificationType = "complaint_status_updated";
+    let notificationTitle = "Complaint Status Updated";
+
+    if (newStatus === "resolved") {
+        notificationType = "complaint_resolved";
+        notificationTitle = "Complaint Resolved";
+    } else if (newStatus === "rejected") {
+        notificationType = "complaint_rejected";
+        notificationTitle = "Complaint Rejected";
+    }
+
+    // 9. Notify the student
+    await createNotificationSafely({
+        recipient: complaint.student,
+        title: notificationTitle,
+        message: `Your complaint "${complaint.title}" status has been updated to ${formattedStatus}.`,
+        type: notificationType,
+        relatedComplaint: complaint._id,
+    });
 
     return complaint;
 };
@@ -461,6 +625,14 @@ export const resolveComplaint = async (
         complaint.resolvedAt = new Date();
 
         await complaint.save();
+
+        await createNotificationSafely({
+            recipient: complaint.student,
+            title: "Complaint Resolved",
+            message: `Your complaint "${complaint.title}" has been resolved successfully. Check the complaint details to view the resolution photo.`,
+            type: "complaint_resolved",
+            relatedComplaint: complaint._id,
+        });
 
         return complaint;
     } finally {
