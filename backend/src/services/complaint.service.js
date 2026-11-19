@@ -15,6 +15,54 @@ const MANAGEMENT_ROLES = [
 const MAX_INVALID_STRIKES = 4;
 const BLOCK_DURATION_DAYS = 7;
 
+const MAX_MONTHLY_COMPLAINTS = 3;
+
+
+// Check monthly complaint submission limit
+export const ensureMonthlyComplaintLimit = async (userId) => {
+    const now = new Date();
+
+    // Convert current time to Indian Standard Time
+    const indiaTime = new Date(
+        now.getTime() + (5.5 * 60 * 60 * 1000)
+    );
+
+    const year = indiaTime.getUTCFullYear();
+    const month = indiaTime.getUTCMonth();
+
+    // Start of current month in IST, converted to UTC
+    const monthStart = new Date(
+        Date.UTC(year, month, 1) - (5.5 * 60 * 60 * 1000)
+    );
+
+    // Start of next month in IST, converted to UTC
+    const nextMonthStart = new Date(
+        Date.UTC(year, month + 1, 1) - (5.5 * 60 * 60 * 1000)
+    );
+
+    const complaintCount = await Complaint.countDocuments({
+        student: userId,
+        createdAt: {
+            $gte: monthStart,
+            $lt: nextMonthStart,
+        },
+    });
+
+    if (complaintCount >= MAX_MONTHLY_COMPLAINTS) {
+        await createNotificationSafely({
+            recipient: userId,
+            title: "Monthly Complaint Limit Reached",
+            message: "You have reached the maximum limit of 3 complaints this month. You can submit new complaints from the 1st of next month.",
+            type: "monthly_limit_reached",
+        });
+        throw new ApiError(
+            403,
+            "You have reached the maximum limit of 3 complaints this month. You can submit new complaints next month."
+        );
+    }
+};
+
+
 // Check whether a student can submit complaints
 export const ensureStudentCanSubmitComplaint = async (userId) => {
     const user = await User.findById(userId);
@@ -149,6 +197,10 @@ const createComplaint = async (data, file, user) => {
     try {
 
         await ensureStudentCanSubmitComplaint(user.id);
+
+        // Check monthly complaint submission limit
+        await ensureMonthlyComplaintLimit(user.id);
+
 
         // 1. Validate image using Gemini
         const aiResult = await validateComplaintImage(file);

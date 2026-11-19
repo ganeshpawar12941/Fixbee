@@ -26,6 +26,7 @@ const notificationSchema = new mongoose.Schema(
             enum: [
                 "invalid_image_warning",
                 "complaint_blocked",
+                "monthly_limit_reached",
                 "complaint_submitted",
                 "complaint_status_updated",
                 "additional_info_requested",
