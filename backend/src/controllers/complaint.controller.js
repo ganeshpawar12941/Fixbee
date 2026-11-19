@@ -230,6 +230,14 @@ export const generateComplaintDetailsController = asyncHandler(
                 description
             );
 
+            if (details.status === "mismatch") {
+                throw new ApiError(422, details.reason);
+            }
+
+            if (details.status === "uncertain") {
+                throw new ApiError(422, details.reason);
+            }
+
             return res.status(200).json(
                 new ApiResponse(
                     200,
@@ -241,8 +249,9 @@ export const generateComplaintDetailsController = asyncHandler(
         } finally {
             // Always delete temporary uploaded image
             if (file?.path) {
-                await fs.unlink(file.path).catch(() => {});
+                await fs.unlink(file.path).catch(() => { });
             }
         }
     }
 );
+
