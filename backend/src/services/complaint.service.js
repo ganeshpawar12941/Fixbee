@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import { uploadImage } from "./cloudinary.services.js";
 import { validateComplaintImage } from "./ai.service.js";
 import { createNotificationSafely } from "./notification.service.js";
+import { sendEmailSafely } from "./email.service.js";
 
 const MANAGEMENT_ROLES = [
     "warden",
@@ -55,11 +56,39 @@ export const ensureMonthlyComplaintLimit = async (userId) => {
             message: "You have reached the maximum limit of 3 complaints this month. You can submit new complaints from the 1st of next month.",
             type: "monthly_limit_reached",
         });
+
+
+        const student = await User.findById(userId);
+        if (student) {
+            await sendEmailSafely({
+                to: student.email,
+                subject: "Fixbee - Monthly Complaint Limit Reached",
+                html: `
+            <h2>Monthly Complaint Limit Reached</h2>
+
+            <p>Hello ${student.name},</p>
+
+            <p>You have reached the maximum limit of 3 complaints for this month.</p>
+
+            <p>You can submit new complaints from:</p>
+
+            <h3>${nextMonthStart.toLocaleDateString("en-IN")}</h3>
+
+            <p>Until then, you can continue tracking your existing complaints and responding to additional information requests.</p>
+
+            <br/>
+            <p>Regards,<br/>Fixbee Team</p>
+        `,
+            });
+        }
         throw new ApiError(
             403,
             "You have reached the maximum limit of 3 complaints this month. You can submit new complaints next month."
         );
     }
+
+    // Send monthly limit email to student
+
 };
 
 
@@ -124,6 +153,22 @@ export const recordInvalidImageStrike = async (userId) => {
             type: "complaint_blocked",
         });
 
+        // Send block email
+        await sendEmailSafely({
+            to: user.email,
+            subject: "Fixbee - Complaint Submission Blocked",
+            html: `
+                <h2>Complaint Submission Blocked</h2>
+                <p>Hello ${user.name},</p>
+                <p>You have submitted 4 invalid images on Fixbee.</p>
+                <p>Your complaint submissions have been blocked for 7 days.</p>
+                <p><strong>Block expires:</strong> ${blockedUntil.toLocaleString("en-IN")}</p>
+                <p>Please ensure your future uploads clearly show campus maintenance or cleanliness issues.</p>
+                <br/>
+                <p>Regards,<br/>Fixbee Team</p>
+            `,
+        });
+
         return {
             strikes,
             blocked: true,
@@ -137,6 +182,22 @@ export const recordInvalidImageStrike = async (userId) => {
         title: strikes === 3 ? "Final Warning" : "Invalid Image Warning",
         message: `Your uploaded image was not valid for a campus maintenance or cleanliness complaint. This is warning ${strikes}/4. After 4 invalid image attempts, complaint submissions will be blocked for 7 days.`,
         type: "invalid_image_warning",
+    });
+
+    // Send warning email
+    await sendEmailSafely({
+        to: user.email,
+        subject: `Fixbee - Invalid Image Warning ${strikes}/4`,
+        html: `
+            <h2>${strikes === 3 ? "Final Warning" : "Invalid Image Warning"}</h2>
+            <p>Hello ${user.name},</p>
+            <p>Your uploaded image was not valid for a campus maintenance or cleanliness complaint.</p>
+            <p><strong>Warning: ${strikes}/4</strong></p>
+            <p>After 4 invalid image attempts, your complaint submissions will be blocked for 7 days.</p>
+            <p>Please upload genuine images showing campus maintenance or cleanliness issues.</p>
+            <br/>
+            <p>Regards,<br/>Fixbee Team</p>
+        `,
     });
 
     return {
@@ -310,6 +371,50 @@ const createComplaint = async (data, file, user) => {
             message: `A new ${complaint.category} complaint "${complaint.title}" has been assigned to you.`,
             type: "complaint_submitted",
             relatedComplaint: complaint._id,
+        });
+
+
+        // Send confirmation email to student
+        await sendEmailSafely({
+            to: user.email,
+            subject: "Fixbee - Complaint Submitted Successfully",
+            html: `
+        <h2>Complaint Submitted Successfully!</h2>
+        <p>Hello ${user.name},</p>
+        <p>Your complaint has been successfully submitted on Fixbee.</p>
+
+        <h3>Complaint Details</h3>
+        <p><strong>Title:</strong> ${complaint.title}</p>
+        <p><strong>Category:</strong> ${complaint.category}</p>
+        <p><strong>Severity:</strong> ${complaint.severity}</p>
+        <p><strong>Status:</strong> ${complaint.status}</p>
+
+        <p>You will receive updates when management reviews your complaint.</p>
+        <br/>
+        <p>Regards,<br/>Fixbee Team</p>
+    `,
+        });
+
+        // Send new complaint email to assigned management
+        await sendEmailSafely({
+            to: assignedManagement.email,
+            subject: "Fixbee - New Complaint Assigned",
+            html: `
+        <h2>New Complaint Assigned</h2>
+        <p>Hello ${assignedManagement.name},</p>
+        <p>A new campus maintenance or cleanliness complaint has been assigned to you.</p>
+
+        <h3>Complaint Details</h3>
+        <p><strong>Title:</strong> ${complaint.title}</p>
+        <p><strong>Description:</strong> ${complaint.description}</p>
+        <p><strong>Category:</strong> ${complaint.category}</p>
+        <p><strong>Severity:</strong> ${complaint.severity}</p>
+        <p><strong>Location:</strong> ${complaint.locationType}</p>
+
+        <p>Please log in to Fixbee to review this complaint.</p>
+        <br/>
+        <p>Regards,<br/>Fixbee Team</p>
+    `,
         });
 
         return complaint;
@@ -494,6 +599,35 @@ const addAdditionalInfo = async (
         });
     }
 
+    // Send email to the opposite party
+    if (recipient) {
+        const recipientUser = await User.findById(recipient);
+
+        if (recipientUser) {
+            await sendEmailSafely({
+                to: recipientUser.email,
+                subject: `Fixbee - ${notificationTitle}`,
+                html: `
+                <h2>${notificationTitle}</h2>
+
+                <p>Hello ${recipientUser.name},</p>
+
+                <p>New additional information has been added to a complaint.</p>
+
+                <h3>Complaint Details</h3>
+
+                <p><strong>Title:</strong> ${complaint.title}</p>
+                <p><strong>Current Status:</strong> ${complaint.status}</p>
+
+                <p>Please log in to Fixbee to view the additional information and respond if required.</p>
+
+                <br/>
+                <p>Regards,<br/>Fixbee Team</p>
+            `,
+            });
+        }
+    }
+
     return complaint;
 };
 
@@ -597,6 +731,35 @@ export const updateComplaintStatus = async (complaintId, newStatus, user) => {
         relatedComplaint: complaint._id,
     });
 
+
+    // 10. Send status update email to student
+    const student = await User.findById(complaint.student);
+
+    if (student) {
+        await sendEmailSafely({
+            to: student.email,
+            subject: `Fixbee - Complaint ${formattedStatus}`,
+            html: `
+            <h2>Complaint Status Updated</h2>
+
+            <p>Hello ${student.name},</p>
+
+            <p>The status of your complaint has been updated.</p>
+
+            <h3>Complaint Details</h3>
+
+            <p><strong>Title:</strong> ${complaint.title}</p>
+            <p><strong>Category:</strong> ${complaint.category}</p>
+            <p><strong>New Status:</strong> ${formattedStatus}</p>
+
+            <p>Please log in to Fixbee to view your complaint details.</p>
+
+            <br/>
+            <p>Regards,<br/>Fixbee Team</p>
+        `,
+        });
+    }
+
     return complaint;
 };
 
@@ -685,6 +848,42 @@ export const resolveComplaint = async (
             type: "complaint_resolved",
             relatedComplaint: complaint._id,
         });
+
+        // Send resolution email to student
+        const student = await User.findById(complaint.student);
+
+        if (student) {
+            await sendEmailSafely({
+                to: student.email,
+                subject: "Fixbee - Your Complaint Has Been Resolved",
+                html: `
+            <h2>Your Complaint Has Been Resolved!</h2>
+
+            <p>Hello ${student.name},</p>
+
+            <p>Good news! Your complaint has been resolved successfully.</p>
+
+            <h3>Complaint Details</h3>
+
+            <p><strong>Title:</strong> ${complaint.title}</p>
+            <p><strong>Category:</strong> ${complaint.category}</p>
+            <p><strong>Status:</strong> Resolved</p>
+
+            <h3>Resolution Photo</h3>
+
+            <p>Management has uploaded a photo showing the completed resolution.</p>
+
+            <p>
+                <a href="${complaint.resolutionPhoto}">
+                    View Resolution Photo
+                </a>
+            </p>
+
+            <br/>
+            <p>Regards,<br/>Fixbee Team</p>
+        `,
+            });
+        }
 
         return complaint;
     } finally {

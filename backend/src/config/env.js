@@ -35,6 +35,9 @@ const env = {
 
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-2.5-flash-lite",
+
+  EMAIL_USER: process.env.EMAIL_USER,
+  EMAIL_APP_PASSWORD: process.env.EMAIL_APP_PASSWORD,
 };
 
 export default env;
