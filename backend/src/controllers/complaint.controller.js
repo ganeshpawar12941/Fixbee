@@ -6,7 +6,11 @@ import {
     addAdditionalInfo,
     updateComplaintStatus,
     ensureStudentCanSubmitComplaint,
-    recordInvalidImageStrike
+    recordInvalidImageStrike,
+    getPublicComplaintFeed,
+    toggleComplaintLike,
+    updateComplaint,
+    deleteComplaint,
 } from "../services/complaint.service.js";
 
 import ApiResponse from "../utils/ApiResponse.js";
@@ -65,6 +69,87 @@ const getMyComplaintsController = asyncHandler(
                 200,
                 result,
                 "Your complaints fetched successfully"
+            )
+        );
+    }
+);
+
+export const getPublicComplaintFeedController = asyncHandler(
+    async (req, res) => {
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 10;
+
+        const result = await getPublicComplaintFeed(
+            req.user,
+            page,
+            limit,
+            {
+                category: req.query.category,
+                locationType: req.query.locationType,
+                severity: req.query.severity,
+                status: req.query.status,
+                search: req.query.search,
+                sortBy: req.query.sortBy,
+            }
+        );
+
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                result,
+                "Public complaint feed fetched successfully"
+            )
+        );
+    }
+);
+
+export const toggleComplaintLikeController = asyncHandler(
+    async (req, res) => {
+        const result = await toggleComplaintLike(
+            req.params.id,
+            req.user
+        );
+
+        const message = result.isLiked
+            ? "Complaint liked successfully"
+            : "Complaint unliked successfully";
+
+        return res.status(200).json(
+            new ApiResponse(200, result, message)
+        );
+    }
+);
+
+export const updateComplaintController = asyncHandler(
+    async (req, res) => {
+        const updatedComplaint = await updateComplaint(
+            req.params.id,
+            req.user,
+            req.body
+        );
+
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                updatedComplaint,
+                "Complaint updated successfully"
+            )
+        );
+    }
+);
+
+export const deleteComplaintController = asyncHandler(
+    async (req, res) => {
+        const result = await deleteComplaint(
+            req.params.id,
+            req.user
+        );
+
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                result,
+                "Complaint deleted successfully"
             )
         );
     }
@@ -143,7 +228,7 @@ export {
     getMyComplaintsController,
     getComplaintByIdController,
     getManagementComplaintsController,
-    addAdditionalInfoController
+    addAdditionalInfoController,
 };
 export const updateComplaintStatusController = asyncHandler(
     async (req, res) => {
