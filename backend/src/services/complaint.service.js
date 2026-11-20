@@ -436,6 +436,7 @@ const getMyComplaints = async (user, page = 1, limit = 10) => {
 
     const complaints = await Complaint.find({
         student: user.id,
+        isDeleted: false,
     })
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
@@ -443,6 +444,7 @@ const getMyComplaints = async (user, page = 1, limit = 10) => {
 
     const total = await Complaint.countDocuments({
         student: user.id,
+        isDeleted: false,
     });
 
     return {
@@ -456,11 +458,202 @@ const getMyComplaints = async (user, page = 1, limit = 10) => {
     };
 };
 
+// Get public campus complaint feed
+export const getPublicComplaintFeed = async (
+    user,
+    page = 1,
+    limit = 10,
+    filters = {}
+) => {
+
+    const filterQuery = {
+        isDeleted: false,
+    };
+
+    if (filters.category) {
+        filterQuery.category = filters.category;
+    }
+
+    if (filters.locationType) {
+        filterQuery.locationType = filters.locationType;
+    }
+
+    if (filters.severity) {
+        filterQuery.severity = filters.severity;
+    }
+
+    if (filters.status) {
+        filterQuery.status = filters.status;
+    }
+
+    if (filters.search) {
+        const searchRegex = new RegExp(
+            filters.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+            "i"
+        );
+
+        filterQuery.$or = [
+            { title: searchRegex },
+            { description: searchRegex },
+        ];
+    }
+
+    const complaints = await Complaint.find(filterQuery)
+        .select(
+            "title description locationType category imageUrl severity status student likesCount likedBy createdAt updatedAt"
+        )
+        .populate("student", "name profilePicture")
+        .sort(
+            filters.sortBy === "newest"
+                ? { createdAt: -1 }
+                : filters.sortBy === "oldest"
+                    ? { createdAt: 1 }
+                    : { likesCount: -1, createdAt: -1 }
+        )
+        .skip((page - 1) * limit)
+        .limit(limit);
+
+    const total = await Complaint.countDocuments(filterQuery);
+
+    const feed = complaints.map((complaint) => {
+        const complaintData = complaint.toObject();
+
+        complaintData.isOwner =
+            complaint.student._id.toString() === user.id;
+
+        complaintData.isLiked = complaint.likedBy.some(
+            (studentId) => studentId.toString() === user.id
+        );
+
+        delete complaintData.likedBy;
+
+        return complaintData;
+    });
+
+    return {
+        complaints: feed,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+        },
+    };
+};
+
+export const toggleComplaintLike = async (complaintId, user) => {
+    const complaint = await Complaint.findById(complaintId);
+
+    if (!complaint || complaint.isDeleted) {
+        throw new ApiError(404, "Complaint not found");
+    }
+
+    const userId = user.id;
+
+    const alreadyLiked = complaint.likedBy.some(
+        (id) => id.toString() === userId
+    );
+
+    if (alreadyLiked) {
+        // Unlike the complaint
+        complaint.likedBy.pull(userId);
+    } else {
+        // Like the complaint
+        complaint.likedBy.push(userId);
+    }
+
+    // Keep the count synchronized
+    complaint.likesCount = complaint.likedBy.length;
+
+    await complaint.save();
+
+    return {
+        isLiked: !alreadyLiked,
+        likesCount: complaint.likesCount,
+    };
+};
+
+export const updateComplaint = async (complaintId, user, updateData) => {
+    if (user.role !== "student") {
+        throw new ApiError(403, "Only students can edit complaints");
+    }
+
+    const complaint = await Complaint.findById(complaintId);
+
+    if (!complaint || complaint.isDeleted) {
+        throw new ApiError(404, "Complaint not found");
+    }
+
+    // Only the complaint owner can edit it
+    if (complaint.student.toString() !== user.id) {
+        throw new ApiError(403, "You can only edit your own complaints");
+    }
+
+    // Only submitted complaints can be edited
+    if (complaint.status !== "submitted") {
+        throw new ApiError(
+            400,
+            "You can only edit complaints that are still submitted"
+        );
+    }
+
+    const allowedFields = [
+        "title",
+        "description",
+        "category",
+        "severity",
+    ];
+
+    allowedFields.forEach((field) => {
+        if (updateData[field] !== undefined) {
+            complaint[field] = updateData[field];
+        }
+    });
+
+    await complaint.save();
+
+    return complaint;
+};
+
+export const deleteComplaint = async (complaintId, user) => {
+    if (user.role !== "student") {
+        throw new ApiError(403, "Only students can delete complaints");
+    }
+
+    const complaint = await Complaint.findById(complaintId);
+
+    if (!complaint || complaint.isDeleted) {
+        throw new ApiError(404, "Complaint not found");
+    }
+
+    // Only the complaint owner can delete it
+    if (complaint.student.toString() !== user.id) {
+        throw new ApiError(403, "You can only delete your own complaints");
+    }
+
+    // Only submitted complaints can be deleted
+    if (complaint.status !== "submitted") {
+        throw new ApiError(
+            400,
+            "You can only delete complaints that are still submitted"
+        );
+    }
+
+    complaint.isDeleted = true;
+    complaint.deletedAt = new Date();
+
+    await complaint.save();
+
+    return {
+        message: "Complaint deleted successfully",
+    };
+};
+
 // Get one complaint by ID
 const getComplaintById = async (complaintId, user) => {
     const complaint = await Complaint.findById(complaintId);
 
-    if (!complaint) {
+    if (!complaint || complaint.isDeleted) {
         throw new ApiError(404, "Complaint not found");
     }
 
@@ -506,12 +699,12 @@ const getManagementComplaints = async (
 
     // Admin can see all complaints
 
-    const complaints = await Complaint.find(filter)
+    const complaints = await Complaint.find({ ...filter, isDeleted: false })
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit);
 
-    const total = await Complaint.countDocuments(filter);
+    const total = await Complaint.countDocuments({ ...filter, isDeleted: false });
 
     return {
         complaints,
@@ -548,7 +741,7 @@ const addAdditionalInfo = async (
 
     const complaint = await Complaint.findById(complaintId);
 
-    if (!complaint) {
+    if (!complaint || complaint.isDeleted) {
         throw new ApiError(404, "Complaint not found");
     }
 
@@ -662,7 +855,7 @@ export const updateComplaintStatus = async (complaintId, newStatus, user) => {
     // 3. Find the complaint
     const complaint = await Complaint.findById(complaintId);
 
-    if (!complaint) {
+    if (!complaint || complaint.isDeleted) {
         throw new ApiError(404, "Complaint not found");
     }
 
@@ -779,7 +972,7 @@ export const resolveComplaint = async (
     // 2. Find the complaint
     const complaint = await Complaint.findById(complaintId);
 
-    if (!complaint) {
+    if (!complaint || complaint.isDeleted) {
         await fs.unlink(file.path).catch(() => { });
         throw new ApiError(404, "Complaint not found");
     }

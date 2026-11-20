@@ -13,6 +13,11 @@ import {
   updateComplaintStatusController,
   resolveComplaintController,
   generateComplaintDetailsController,
+  getPublicComplaintFeedController,
+  toggleComplaintLikeController,
+  updateComplaintController,
+  deleteComplaintController,
+
 } from "../controllers/complaint.controller.js";
 
 const router = Router();
@@ -23,11 +28,17 @@ router.use(protect);
 
 // Student routes
 
+// Public complaint feed
+router.get("/feed", getPublicComplaintFeedController);
+
+// Like or unlike a complaint
+router.patch("/:id/like", toggleComplaintLikeController);
+
 router.post(
-    "/generate-details",
-    upload.single("complaintImage"),
-    verifyUploadedImage,
-    generateComplaintDetailsController
+  "/generate-details",
+  upload.single("complaintImage"),
+  verifyUploadedImage,
+  generateComplaintDetailsController
 );
 
 router.post(
@@ -36,6 +47,13 @@ router.post(
   verifyUploadedImage,
   createComplaintController
 );
+
+// Update own complaint
+router.patch("/:id", updateComplaintController);
+
+// Delete own complaint
+router.delete("/:id", deleteComplaintController);
+
 router.get("/my", getMyComplaintsController);
 
 // Management routes

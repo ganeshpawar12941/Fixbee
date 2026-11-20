@@ -88,6 +88,32 @@ const complaintSchema = new mongoose.Schema(
             default: null,
         },
 
+        // Soft deletion details
+        isDeleted: {
+            type: Boolean,
+            default: false,
+        },
+
+        deletedAt: {
+            type: Date,
+            default: null,
+        },
+
+        // Students who liked this complaint
+        likedBy: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "User",
+            },
+        ],
+
+        // Total number of likes
+        likesCount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+
         // Additional information provided by the student or management
         additionalInfo: [
             {
