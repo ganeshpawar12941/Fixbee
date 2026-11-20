@@ -353,6 +353,17 @@ const createComplaint = async (data, file, user) => {
             severity: severity || "medium",
             student: user.id,
             assignedManagement: assignedManagement._id,
+
+            // Initial status history
+            statusHistory: [
+                {
+                    fromStatus: null,
+                    toStatus: "submitted",
+                    changedBy: user.id,
+                    remarks: "Complaint submitted",
+                    changedAt: new Date(),
+                },
+            ],
         });
 
         // Notify student
@@ -434,18 +445,23 @@ const getMyComplaints = async (user, page = 1, limit = 10) => {
         );
     }
 
-    const complaints = await Complaint.find({
+    const filter = {
         student: user.id,
         isDeleted: false,
-    })
+    };
+
+    const complaints = await Complaint.find(filter)
+        .select(
+            "title description locationType category imageUrl severity status createdAt updatedAt resolvedAt resolutionPhoto rejectionReason"
+        )
+        .select(
+            "title description locationType category imageUrl severity status createdAt updatedAt resolvedAt resolutionPhoto rejectionReason statusHistory"
+        )
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit);
 
-    const total = await Complaint.countDocuments({
-        student: user.id,
-        isDeleted: false,
-    });
+    const total = await Complaint.countDocuments(filter);
 
     return {
         complaints,
@@ -889,8 +905,18 @@ export const updateComplaintStatus = async (complaintId, newStatus, user) => {
         );
     }
 
-    // 7. Update the complaint
+    // 7. Update the complaint and record status history
+    const previousStatus = complaint.status;
+
     complaint.status = newStatus;
+
+    complaint.statusHistory.push({
+        fromStatus: previousStatus,
+        toStatus: newStatus,
+        changedBy: user.id,
+        remarks: `Status changed from ${previousStatus} to ${newStatus}`,
+        changedAt: new Date(),
+    });
 
     // Record when the complaint is resolved
     if (newStatus === "resolved") {
@@ -1027,10 +1053,20 @@ export const resolveComplaint = async (
             "fixbee/resolutions"
         );
 
-        // 6. Update the complaint
+        // 6. Update the complaint and record resolution history
+        const previousStatus = complaint.status;
+
         complaint.resolutionPhoto = image.url;
         complaint.status = "resolved";
         complaint.resolvedAt = new Date();
+
+        complaint.statusHistory.push({
+            fromStatus: previousStatus,
+            toStatus: "resolved",
+            changedBy: user.id,
+            remarks: "Complaint resolved. Resolution photo uploaded.",
+            changedAt: new Date(),
+        });
 
         await complaint.save();
 

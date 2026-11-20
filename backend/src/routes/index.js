@@ -3,6 +3,7 @@ import ApiResponse from "../utils/ApiResponse.js";
 import authRoutes from "./auth.routes.js";
 import complaintRoutes from "./complaint.routes.js";
 import notificationRoutes from "./notification.routes.js";
+import dashboardRoutes from "./dashboard.routes.js";
 
 const router = Router();
 
@@ -22,5 +23,6 @@ router.use("/complaints", complaintRoutes);
 
 router.use("/notifications", notificationRoutes);
 
+router.use("/dashboard", dashboardRoutes);
 
 export default router;

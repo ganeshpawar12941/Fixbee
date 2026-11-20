@@ -73,6 +73,54 @@ const complaintSchema = new mongoose.Schema(
             default: "submitted",
         },
 
+        // Complaint status history
+        statusHistory: [
+            {
+                fromStatus: {
+                    type: String,
+                    enum: [
+                        "submitted",
+                        "under_review",
+                        "in_progress",
+                        "resolved",
+                        "rejected",
+                        null,
+                    ],
+                    default: null,
+                },
+
+                toStatus: {
+                    type: String,
+                    enum: [
+                        "submitted",
+                        "under_review",
+                        "in_progress",
+                        "resolved",
+                        "rejected",
+                    ],
+                    required: true,
+                },
+
+                changedBy: {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: "User",
+                    required: true,
+                },
+
+                remarks: {
+                    type: String,
+                    trim: true,
+                    maxlength: 1000,
+                    default: null,
+                },
+
+                changedAt: {
+                    type: Date,
+                    default: Date.now,
+                },
+            },
+        ],
+
         // Student who submitted the complaint
         student: {
             type: mongoose.Schema.Types.ObjectId,
