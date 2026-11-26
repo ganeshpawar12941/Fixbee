@@ -1,41 +1,52 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiService } from '../config/api';
 
 const AuthContext = createContext({});
 
-export const PRESET_GOOGLE_USERS = [
+export const PRESET_USERS = [
   {
-    id: 'google_user_01',
+    id: 'usr_student_01',
+    _id: '670000000000000000000001',
     name: 'Alex Johnson',
     email: 'alex.j@campus.edu',
-    collegeDomain: 'campus.edu',
+    role: 'student',
+    profilePicture: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
     department: 'Computer Science & Eng',
-    room: 'Hostel Block B - 304',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    campusPoints: 140,
-    role: 'Student',
+    room: 'Hostel Block B - Room 304',
+    strikes: 0,
+    monthlyLimit: 10,
+    submittedThisMonth: 3,
   },
   {
-    id: 'google_user_02',
-    name: 'Maya Patel',
-    email: 'maya.p@campus.edu',
-    collegeDomain: 'campus.edu',
-    department: 'Electrical Engineering',
-    room: 'Hostel Block A - 112',
-    avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80',
-    campusPoints: 210,
-    role: 'Student',
+    id: 'usr_warden_01',
+    _id: '670000000000000000000002',
+    name: 'Major Rajesh Verma',
+    email: 'warden.verma@campus.edu',
+    role: 'warden',
+    profilePicture: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+    department: 'Chief Hostel Warden',
+    jurisdiction: "Boys' & Girls' Hostels",
   },
   {
-    id: 'google_user_03',
-    name: 'Dev Sharma',
-    email: 'dev.sharma@campus.edu',
-    collegeDomain: 'campus.edu',
-    department: 'Mechanical Engineering',
-    room: 'Hostel Block C - 205',
-    avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80',
-    campusPoints: 95,
-    role: 'Student',
+    id: 'usr_dean_01',
+    _id: '670000000000000000000003',
+    name: 'Dr. Sunita Deshmukh',
+    email: 'dean.infra@campus.edu',
+    role: 'infrastructure_dean',
+    profilePicture: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
+    department: 'Dean of Infrastructure & Works',
+    jurisdiction: 'Entire Campus Facilities',
+  },
+  {
+    id: 'usr_admin_01',
+    _id: '670000000000000000000004',
+    name: 'R. K. Saxena (Admin)',
+    email: 'admin.fixbee@campus.edu',
+    role: 'admin',
+    profilePicture: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+    department: 'FixBee Campus Administrator',
+    jurisdiction: 'Full System Access',
   },
 ];
 
@@ -62,6 +73,14 @@ export const AuthProvider = ({ children }) => {
       if (storedUser && storedToken) {
         setUser(JSON.parse(storedUser));
         setToken(storedToken);
+      } else {
+        // Default to student preset
+        const defaultUser = PRESET_USERS[0];
+        const defaultToken = `mock_jwt_token_${defaultUser.id}`;
+        setUser(defaultUser);
+        setToken(defaultToken);
+        await AsyncStorage.setItem('@fixbee_user', JSON.stringify(defaultUser));
+        await AsyncStorage.setItem('@fixbee_token', defaultToken);
       }
     } catch (e) {
       console.error('Failed to restore session', e);
@@ -83,15 +102,14 @@ export const AuthProvider = ({ children }) => {
   const signInWithGoogle = async (selectedPresetUser = null) => {
     setIsLoading(true);
     try {
-      // Use preset or default Google campus profile
-      const profile = selectedPresetUser || PRESET_GOOGLE_USERS[0];
-      const fakeGoogleToken = `google_oauth2_${profile.id}_${Date.now()}`;
+      const profile = selectedPresetUser || PRESET_USERS[0];
+      const jwtToken = `jwt_${profile.role}_${profile.id}_${Date.now()}`;
 
       await AsyncStorage.setItem('@fixbee_user', JSON.stringify(profile));
-      await AsyncStorage.setItem('@fixbee_token', fakeGoogleToken);
+      await AsyncStorage.setItem('@fixbee_token', jwtToken);
 
       setUser(profile);
-      setToken(fakeGoogleToken);
+      setToken(jwtToken);
       return { success: true, user: profile };
     } catch (err) {
       return { success: false, error: err.message };
@@ -100,33 +118,9 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const signInWithCustomGoogleEmail = async (name, email) => {
-    setIsLoading(true);
-    try {
-      const customUser = {
-        id: `google_${Date.now()}`,
-        name: name || 'Campus Student',
-        email: email || 'student@campus.edu',
-        collegeDomain: email.includes('@') ? email.split('@')[1] : 'campus.edu',
-        department: 'General Engineering',
-        room: 'Campus Resident',
-        avatar: `https://api.dicebear.com/7.x/bottts/png?seed=${encodeURIComponent(name || 'fixbee')}`,
-        campusPoints: 50,
-        role: 'Student',
-      };
-      const token = `google_oauth2_${customUser.id}`;
-
-      await AsyncStorage.setItem('@fixbee_user', JSON.stringify(customUser));
-      await AsyncStorage.setItem('@fixbee_token', token);
-
-      setUser(customUser);
-      setToken(token);
-      return { success: true, user: customUser };
-    } catch (err) {
-      return { success: false, error: err.message };
-    } finally {
-      setIsLoading(false);
-    }
+  const switchRole = async (targetRole) => {
+    const matched = PRESET_USERS.find((u) => u.role === targetRole) || PRESET_USERS[0];
+    await signInWithGoogle(matched);
   };
 
   const signOut = async () => {
@@ -151,8 +145,9 @@ export const AuthProvider = ({ children }) => {
         completeIntro,
         resetIntro,
         signInWithGoogle,
-        signInWithCustomGoogleEmail,
+        switchRole,
         signOut,
+        presetUsers: PRESET_USERS,
       }}
     >
       {children}

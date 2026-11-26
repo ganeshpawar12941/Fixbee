@@ -1,8 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// Reference the Fixbee backend:
-// On Android emulator, localhost is 10.0.2.2; on web/iOS, localhost is 127.0.0.1
 const getBaseUrl = () => {
   if (Platform.OS === 'android') {
     return 'http://10.0.2.2:5000/api/v1';
@@ -12,9 +10,6 @@ const getBaseUrl = () => {
 
 export const API_BASE_URL = getBaseUrl();
 
-/**
- * Custom API client aligned with Fixbee backend ApiResponse and ApiError standards.
- */
 class ApiService {
   constructor() {
     this.baseUrl = API_BASE_URL;
@@ -22,59 +17,107 @@ class ApiService {
 
   async checkHealth() {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2500);
       const response = await fetch(`${this.baseUrl}/health`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       if (response.ok) {
         const data = await response.json();
         return { isOnline: true, data };
       }
     } catch {
-      // Backend is offline or unreachable - seamless local fallback
+      // Backend is offline or unreachable - fallback to seamless local sync
     }
     return { isOnline: false, data: null };
   }
 
-  async getAuthHeaders() {
+  async getAuthHeaders(isFormData = false) {
     try {
       const token = await AsyncStorage.getItem('@fixbee_token');
-      return token ? { Authorization: `Bearer ${token}` } : {};
+      const headers = {};
+      if (!isFormData) {
+        headers['Content-Type'] = 'application/json';
+      }
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      return headers;
     } catch {
-      return {};
+      return isFormData ? {} : { 'Content-Type': 'application/json' };
     }
   }
 
-  async get(endpoint) {
+  async get(endpoint, params = null) {
     try {
-      const authHeaders = await this.getAuthHeaders();
-      const response = await fetch(`${this.baseUrl}${endpoint}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders,
-        },
-      });
-      return await response.json();
+      let url = `${this.baseUrl}${endpoint}`;
+      if (params) {
+        const query = Object.entries(params)
+          .filter(([_, v]) => v !== undefined && v !== null && v !== '')
+          .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+          .join('&');
+        if (query) {
+          url += (url.includes('?') ? '&' : '?') + query;
+        }
+      }
+
+      const headers = await this.getAuthHeaders();
+      const response = await fetch(url, { method: 'GET', headers });
+      const data = await response.json();
+      return data;
     } catch (err) {
-      return { success: false, message: err.message };
+      return { success: false, message: err.message, isNetworkError: true };
     }
   }
 
-  async post(endpoint, body) {
+  async post(endpoint, body, isFormData = false) {
     try {
-      const authHeaders = await this.getAuthHeaders();
-      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      const headers = await this.getAuthHeaders(isFormData);
+      const options = {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders,
-        },
-        body: JSON.stringify(body),
-      });
-      return await response.json();
+        headers,
+        body: isFormData ? body : JSON.stringify(body),
+      };
+
+      const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+      const data = await response.json();
+      return data;
     } catch (err) {
-      return { success: false, message: err.message };
+      return { success: false, message: err.message, isNetworkError: true };
+    }
+  }
+
+  async patch(endpoint, body, isFormData = false) {
+    try {
+      const headers = await this.getAuthHeaders(isFormData);
+      const options = {
+        method: 'PATCH',
+        headers,
+        body: isFormData ? body : (body ? JSON.stringify(body) : undefined),
+      };
+
+      const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+      const data = await response.json();
+      return data;
+    } catch (err) {
+      return { success: false, message: err.message, isNetworkError: true };
+    }
+  }
+
+  async delete(endpoint) {
+    try {
+      const headers = await this.getAuthHeaders();
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const data = await response.json();
+      return data;
+    } catch (err) {
+      return { success: false, message: err.message, isNetworkError: true };
     }
   }
 }

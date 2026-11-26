@@ -3,862 +3,757 @@ import {
   StyleSheet,
   Text,
   View,
+  ScrollView,
   TextInput,
   TouchableOpacity,
-  ScrollView,
   Image,
-  Alert,
   ActivityIndicator,
-  Animated,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, CampusZones, Categories } from '../theme/colors';
+import { Colors, Categories, LocationTypes, SeverityLevels } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useComplaints } from '../context/ComplaintsContext';
 
-// ─── Simple on-device AI description enhancer (no external API needed) ───────
-const AI_ENHANCEMENT_PROMPTS = [
-  'Detailed maintenance report:',
-  'Campus facility issue notice:',
-  'Infrastructure complaint summary:',
-];
-
-function enhanceDescriptionLocally(rawText) {
-  if (!rawText || !rawText.trim()) return rawText;
-  const cleaned = rawText.trim();
-
-  // Fix grammar basics
-  const capitalized = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-  const withPeriod = capitalized.endsWith('.') || capitalized.endsWith('!') || capitalized.endsWith('?')
-    ? capitalized
-    : capitalized + '.';
-
-  // Build an enhanced version
-  const enhanced = `${withPeriod}\n\nThis issue has been observed on campus and requires prompt attention from the facilities team. Students and staff are affected, and timely resolution is requested to maintain a safe and functional learning environment.`;
-  return enhanced;
-}
-
 export default function AddComplaintScreen({ onSuccessNavigation }) {
   const { user } = useAuth();
-  const { addComplaint } = useComplaints();
+  const { createComplaint, generateAIDetails } = useComplaints();
 
+  const [imageUri, setImageUri] = useState(null);
+  const [quickPrompt, setQuickPrompt] = useState('');
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+
+  // Form Fields matching backend schema
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [selectedZone, setSelectedZone] = useState(CampusZones[0]);
-  const [roomDetails, setRoomDetails] = useState('');
-  const [category, setCategory] = useState('classroom');
-  const [urgency, setUrgency] = useState('medium');
-  const [imageUri, setImageUri] = useState(null);
+  const [category, setCategory] = useState('electrical');
+  const [locationType, setLocationType] = useState('campus');
+  const [severity, setSeverity] = useState('medium');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isEnhancing, setIsEnhancing] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [lastCreatedId, setLastCreatedId] = useState(null);
-  const [aiUsed, setAiUsed] = useState(false);
 
-  const handleAiEnhance = async () => {
-    if (!description.trim()) {
-      Alert.alert('Add a Description First', 'Please write a brief description of the issue before using AI enhancement.');
-      return;
-    }
-    setIsEnhancing(true);
-    // Simulate a short AI processing delay for good UX
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    const enhanced = enhanceDescriptionLocally(description);
-    setDescription(enhanced);
-    setAiUsed(true);
-    setIsEnhancing(false);
-  };
-
-  const takePhotoWithCamera = async () => {
+  // Pick Image from Gallery
+  const pickImage = async () => {
     try {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Needed', 'Please allow camera access to take photos of campus issues.');
+        Alert.alert('Permission Denied', 'Camera roll permissions are required to upload incident photos.');
         return;
       }
-      const result = await ImagePicker.launchCameraAsync({
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         quality: 0.8,
+        aspect: [4, 3],
       });
+
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setImageUri(result.assets[0].uri);
       }
     } catch {
-      // Fallback silently
+      Alert.alert('Error', 'Failed to pick image');
     }
   };
 
-  const handleSubmit = async () => {
-    if (!title.trim()) {
-      Alert.alert('Title Required', 'Please enter a quick title describing the campus issue.');
+  // Capture Image with Camera
+  const takePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Camera permission is required to photograph campus issues.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        quality: 0.8,
+        aspect: [4, 3],
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setImageUri(result.assets[0].uri);
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to capture photo');
+    }
+  };
+
+  // AI Auto-Fill Trigger
+  const handleAIGenerate = async () => {
+    if (!imageUri) {
+      Alert.alert('Photo Required', 'Please attach an issue photo before using FixBee AI assist.');
       return;
     }
-    if (!description.trim()) {
-      Alert.alert('Description Required', 'Please provide a few details so technicians can locate and fix the issue.');
+
+    if (!quickPrompt.trim()) {
+      Alert.alert('Quick Clue Required', 'Please type a short clue (e.g., "water dripping from ceiling in Room 204") so AI can generate the report.');
+      return;
+    }
+
+    setIsGeneratingAI(true);
+    try {
+      const result = await generateAIDetails(imageUri, quickPrompt);
+      if (result.success && result.data) {
+        setTitle(result.data.title || '');
+        setDescription(result.data.description || '');
+        if (result.data.category) setCategory(result.data.category);
+        if (result.data.locationType) setLocationType(result.data.locationType);
+        if (result.data.severity) setSeverity(result.data.severity);
+        Alert.alert('AI Generated', 'Title, description, category, and severity populated automatically. Review and make any adjustments!');
+      }
+    } catch (err) {
+      Alert.alert('AI Notice', err.message || 'Unable to auto-generate details. Please fill manually.');
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
+  // Form Validation & Submission
+  const handleSubmit = async () => {
+    if (!imageUri) {
+      Alert.alert('Photo Evidence Missing', 'A clear photograph of the defect is required to submit a complaint.');
+      return;
+    }
+
+    if (title.trim().length < 5) {
+      Alert.alert('Title Too Short', 'Complaint title must be at least 5 characters long.');
+      return;
+    }
+
+    if (title.trim().length > 120) {
+      Alert.alert('Title Too Long', 'Complaint title cannot exceed 120 characters.');
+      return;
+    }
+
+    if (description.trim().length < 10) {
+      Alert.alert('Description Too Short', 'Please provide a descriptive explanation (minimum 10 characters).');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const fullLocation = roomDetails.trim()
-        ? `${selectedZone} - ${roomDetails.trim()}`
-        : selectedZone;
+      await createComplaint({
+        title: title.trim(),
+        description: description.trim(),
+        category,
+        locationType,
+        severity,
+        imageUrl: imageUri,
+      });
 
-      const created = await addComplaint(
-        {
-          title,
-          description,
-          location: fullLocation,
-          category,
-          urgency,
-          imageUrl: imageUri,
-        },
-        user
+      Alert.alert(
+        'Complaint Submitted',
+        'Your complaint has been submitted to the campus feed and dispatched to management.',
+        [
+          {
+            text: 'View Feed',
+            onPress: () => {
+              if (onSuccessNavigation) onSuccessNavigation();
+            },
+          },
+        ]
       );
-
-      setLastCreatedId(created.id);
-      setIsSubmitting(false);
-      setShowSuccessModal(true);
     } catch (err) {
+      Alert.alert('Submission Error', err.message || 'Failed to submit complaint.');
+    } finally {
       setIsSubmitting(false);
-      Alert.alert('Submission Error', 'Failed to publish report: ' + err.message);
-    }
-  };
-
-  const handleFinishSuccess = () => {
-    setShowSuccessModal(false);
-    setTitle('');
-    setDescription('');
-    setRoomDetails('');
-    setImageUri(null);
-    setAiUsed(false);
-    if (onSuccessNavigation) {
-      onSuccessNavigation(lastCreatedId);
     }
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.screenContainer}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* ─── Page Header ─────────────────────────────────── */}
-        <View style={styles.pageHeader}>
-          <View style={styles.headerBadge}>
-            <Ionicons name="megaphone" size={14} color="#0B0F19" />
-            <Text style={styles.headerBadgeText}>Report Campus Issue</Text>
+        {/* Screen Header */}
+        <View style={styles.headerRow}>
+          <View>
+            <View style={styles.brandTitleRow}>
+              <Text style={styles.screenTitle}>Report An Issue</Text>
+            </View>
+            <Text style={styles.screenSubtitle}>Notify campus authorities & facilities team</Text>
           </View>
-          <View style={styles.brandRow}>
-            <Text style={styles.brandFix}>Fix</Text>
-            <Text style={styles.brandBee}>bee</Text>
+        </View>
+
+        {/* Guard & Quota Alert Card */}
+        <View style={styles.quotaCard}>
+          <View style={styles.quotaItem}>
+            <Ionicons name="calendar-outline" size={14} color={Colors.primary} />
+            <Text style={styles.quotaText}>Monthly Limit: 10 reports</Text>
           </View>
-          <Text style={styles.headerTagline}>
-            Buzz it. The community sees it. It gets fixed.
+          <View style={styles.quotaDivider} />
+          <View style={styles.quotaItem}>
+            <Ionicons name="shield-checkmark" size={14} color="#22C55E" />
+            <Text style={styles.quotaText}>Image Strikes: 0/4 (Clean)</Text>
+          </View>
+        </View>
+
+        {/* 1. Photo Picker Section */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionHeader}>1. Incident Photograph *</Text>
+          <Text style={styles.sectionHelper}>
+            Clear photographic evidence enables fast maintenance dispatch.
           </Text>
-        </View>
-
-        {/* ─── Issue Title ──────────────────────────────────── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>
-            Issue Title <Text style={styles.requiredStar}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. Water leak on 2nd floor corridor"
-            placeholderTextColor={Colors.textMuted}
-            value={title}
-            onChangeText={setTitle}
-            returnKeyType="next"
-          />
-        </View>
-
-        {/* ─── Category ────────────────────────────────────── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Category</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.pillScroll}
-          >
-            {Categories.filter((c) => c.id !== 'all').map((cat) => {
-              const isActive = category === cat.id;
-              return (
-                <TouchableOpacity
-                  key={cat.id}
-                  style={[styles.pill, isActive && styles.pillActive]}
-                  onPress={() => setCategory(cat.id)}
-                  activeOpacity={0.75}
-                >
-                  <Ionicons
-                    name={cat.icon}
-                    size={14}
-                    color={isActive ? '#0B0F19' : Colors.primary}
-                  />
-                  <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
-                    {cat.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        {/* ─── Campus Zone ─────────────────────────────────── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Campus Zone</Text>
-          <View style={styles.zoneRow}>
-            {CampusZones.map((zone) => {
-              const isActive = selectedZone === zone;
-              return (
-                <TouchableOpacity
-                  key={zone}
-                  style={[styles.zonePill, isActive && styles.zonePillActive]}
-                  onPress={() => setSelectedZone(zone)}
-                  activeOpacity={0.75}
-                >
-                  <Ionicons
-                    name={
-                      zone === "Boys' Hostel"
-                        ? 'man'
-                        : zone === "Girls' Hostel"
-                        ? 'woman'
-                        : 'business'
-                    }
-                    size={14}
-                    color={isActive ? '#0B0F19' : Colors.primary}
-                    style={{ marginRight: 5 }}
-                  />
-                  <Text style={[styles.zoneText, isActive && styles.zoneTextActive]}>
-                    {zone}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          <TextInput
-            style={[styles.input, { marginTop: 10 }]}
-            placeholder="Specific Room / Floor / Landmark (e.g. Room 204, 3rd floor)"
-            placeholderTextColor={Colors.textMuted}
-            value={roomDetails}
-            onChangeText={setRoomDetails}
-            returnKeyType="next"
-          />
-        </View>
-
-        {/* ─── Urgency Level ───────────────────────────────── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Urgency Level</Text>
-          <View style={styles.urgencyGrid}>
-            {[
-              { id: 'low', label: 'Low', color: Colors.urgencyLow, icon: 'shield-outline' },
-              { id: 'medium', label: 'Medium', color: Colors.urgencyMedium, icon: 'alert-circle-outline' },
-              { id: 'high', label: 'High Priority', color: Colors.urgencyHigh, icon: 'warning-outline' },
-              { id: 'emergency', label: 'Critical Hazard', color: Colors.urgencyEmergency, icon: 'alert-circle' },
-            ].map((item) => {
-              const isActive = urgency === item.id;
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[
-                    styles.urgencyCard,
-                    isActive && { backgroundColor: item.color, borderColor: item.color },
-                  ]}
-                  onPress={() => setUrgency(item.id)}
-                  activeOpacity={0.75}
-                >
-                  <Ionicons
-                    name={item.icon}
-                    size={16}
-                    color={isActive ? '#0B0F19' : item.color}
-                  />
-                  <Text style={[styles.urgencyLabel, isActive && { color: '#0B0F19', fontWeight: '800' }]}>
-                    {item.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* ─── Description with AI Enhance ─────────────────── */}
-        <View style={styles.section}>
-          <View style={styles.descLabelRow}>
-            <Text style={styles.sectionLabel}>
-              Description <Text style={styles.requiredStar}>*</Text>
-            </Text>
-            {aiUsed && (
-              <View style={styles.aiUsedBadge}>
-                <Ionicons name="sparkles" size={10} color="#0B0F19" />
-                <Text style={styles.aiUsedText}>AI Enhanced</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Seamless description + AI button container */}
-          <View style={styles.descContainer}>
-            <TextInput
-              style={styles.textArea}
-              placeholder="Describe what is wrong, where exactly it is, and when it started..."
-              placeholderTextColor={Colors.textMuted}
-              multiline
-              numberOfLines={5}
-              value={description}
-              onChangeText={(text) => {
-                setDescription(text);
-                if (aiUsed) setAiUsed(false);
-              }}
-              textAlignVertical="top"
-            />
-            {/* Divider line between textarea and AI button */}
-            <View style={styles.descDivider} />
-            {/* AI Enhance Button — fused to bottom of description box */}
-            <TouchableOpacity
-              style={[styles.aiBtn, isEnhancing && styles.aiBtnLoading]}
-              onPress={handleAiEnhance}
-              disabled={isEnhancing}
-              activeOpacity={0.8}
-            >
-              {isEnhancing ? (
-                <>
-                  <ActivityIndicator size="small" color="#FFB800" />
-                  <Text style={styles.aiBtnText}>Enhancing with AI...</Text>
-                </>
-              ) : (
-                <>
-                  <Ionicons name="sparkles" size={15} color={Colors.primary} />
-                  <Text style={styles.aiBtnText}>
-                    {aiUsed ? 'Re-enhance Description' : 'AI: Enhance My Description'}
-                  </Text>
-                  <View style={styles.aiBtnBadge}>
-                    <Text style={styles.aiBtnBadgeText}>Smart</Text>
-                  </View>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.aiHint}>
-            AI improves grammar, clarity, and adds professional context to help your report get resolved faster.
-          </Text>
-        </View>
-
-        {/* ─── Photo Evidence ──────────────────────────────── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Photo Evidence</Text>
 
           {imageUri ? (
             <View style={styles.imagePreviewContainer}>
               <Image source={{ uri: imageUri }} style={styles.previewImage} resizeMode="cover" />
-              <TouchableOpacity style={styles.removeImageBtn} onPress={() => setImageUri(null)}>
-                <Ionicons name="close" size={14} color="#FFF" />
+              <TouchableOpacity
+                style={styles.changeImageBtn}
+                onPress={pickImage}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="camera" size={14} color="#0A0A0C" />
+                <Text style={styles.changeImageText}>Change Photo</Text>
               </TouchableOpacity>
-              <View style={styles.imageLabel}>
-                <Ionicons name="checkmark-circle" size={13} color={Colors.accentSuccess} />
-                <Text style={styles.imageLabelText}>Photo attached</Text>
-              </View>
             </View>
           ) : (
-            <TouchableOpacity style={styles.cameraOnlyBtn} onPress={takePhotoWithCamera} activeOpacity={0.8}>
-              <View style={styles.cameraIconCircle}>
-                <Ionicons name="camera" size={24} color={Colors.primary} />
-              </View>
-              <View style={styles.cameraTextBlock}>
-                <Text style={styles.cameraBtnTitle}>Take a Photo</Text>
-                <Text style={styles.cameraBtnSub}>Capture the issue clearly for faster resolution</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-            </TouchableOpacity>
+            <View style={styles.photoActionRow}>
+              <TouchableOpacity style={styles.uploadBox} onPress={pickImage} activeOpacity={0.8}>
+                <Ionicons name="images-outline" size={26} color={Colors.primary} />
+                <Text style={styles.uploadBoxTitle}>Photo Gallery</Text>
+                <Text style={styles.uploadBoxSub}>Browse album</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.uploadBox} onPress={takePhoto} activeOpacity={0.8}>
+                <Ionicons name="camera-outline" size={26} color={Colors.primary} />
+                <Text style={styles.uploadBoxTitle}>Snap Photo</Text>
+                <Text style={styles.uploadBoxSub}>Use live camera</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
 
-        {/* ─── Submit Button ───────────────────────────────── */}
+        {/* 2. FixBee AI Assist Card */}
+        <View style={styles.aiCard}>
+          <View style={styles.aiHeaderRow}>
+            <View style={styles.aiBadge}>
+              <Ionicons name="sparkles" size={14} color="#0A0A0C" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.aiTitle}>FixBee AI Auto-Fill</Text>
+              <Text style={styles.aiDesc}>
+                Type a short clue. AI will draft a complete technical report.
+              </Text>
+            </View>
+          </View>
+
+          <TextInput
+            style={styles.aiPromptInput}
+            placeholder="e.g. broken tap leaking cold water in 2nd floor hostel washroom"
+            placeholderTextColor={Colors.textMuted}
+            value={quickPrompt}
+            onChangeText={setQuickPrompt}
+          />
+
+          <TouchableOpacity
+            style={[
+              styles.aiGenerateButton,
+              (!imageUri || !quickPrompt.trim() || isGeneratingAI) && styles.aiButtonDisabled,
+            ]}
+            onPress={handleAIGenerate}
+            disabled={!imageUri || !quickPrompt.trim() || isGeneratingAI}
+            activeOpacity={0.85}
+          >
+            {isGeneratingAI ? (
+              <ActivityIndicator size="small" color="#0A0A0C" />
+            ) : (
+              <>
+                <Ionicons name="flash" size={15} color="#0A0A0C" />
+                <Text style={styles.aiButtonText}>Generate Report with AI</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* 3. Report Details Form */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionHeader}>2. Report Details</Text>
+
+          {/* Title */}
+          <View style={styles.inputGroup}>
+            <View style={styles.inputLabelRow}>
+              <Text style={styles.inputLabel}>Title *</Text>
+              <Text style={styles.charCount}>{title.length}/120</Text>
+            </View>
+            <TextInput
+              style={styles.textInput}
+              placeholder="e.g. Main corridor light fixture flickering and sparking"
+              placeholderTextColor={Colors.textMuted}
+              value={title}
+              onChangeText={setTitle}
+              maxLength={120}
+            />
+          </View>
+
+          {/* Description */}
+          <View style={styles.inputGroup}>
+            <View style={styles.inputLabelRow}>
+              <Text style={styles.inputLabel}>Detailed Description *</Text>
+              <Text style={styles.charCount}>{description.length}/3000</Text>
+            </View>
+            <TextInput
+              style={[styles.textInput, styles.textArea]}
+              placeholder="Provide exact room/block, observed behavior, and urgency details..."
+              placeholderTextColor={Colors.textMuted}
+              value={description}
+              onChangeText={setDescription}
+              multiline
+              maxLength={3000}
+            />
+          </View>
+
+          {/* Category Picker */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Category *</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipsScroll}
+            >
+              {Categories.filter((c) => c.id !== 'all').map((cat) => {
+                const isSelected = category === cat.id;
+                return (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[styles.formChip, isSelected && styles.formChipActive]}
+                    onPress={() => setCategory(cat.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={cat.icon}
+                      size={13}
+                      color={isSelected ? '#0A0A0C' : Colors.textSecondary}
+                    />
+                    <Text style={[styles.formChipText, isSelected && styles.formChipTextActive]}>
+                      {cat.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {/* Location Zone Picker */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Campus Zone *</Text>
+            <View style={styles.locationSelectorRow}>
+              {LocationTypes.filter((l) => l.id !== 'all').map((loc) => {
+                const isSelected = locationType === loc.id;
+                return (
+                  <TouchableOpacity
+                    key={loc.id}
+                    style={[styles.locationOption, isSelected && styles.locationOptionActive]}
+                    onPress={() => setLocationType(loc.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={loc.icon}
+                      size={15}
+                      color={isSelected ? Colors.primary : Colors.textMuted}
+                    />
+                    <Text
+                      style={[styles.locationOptionText, isSelected && styles.locationOptionTextActive]}
+                    >
+                      {loc.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Urgency / Severity */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Urgency Level *</Text>
+            <View style={styles.severityRow}>
+              {SeverityLevels.map((sev) => {
+                const isSelected = severity === sev.id;
+                return (
+                  <TouchableOpacity
+                    key={sev.id}
+                    style={[
+                      styles.severityOption,
+                      isSelected && {
+                        borderColor: sev.color,
+                        backgroundColor: `${sev.color}18`,
+                      },
+                    ]}
+                    onPress={() => setSeverity(sev.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.severityText,
+                        isSelected && { color: sev.color, fontWeight: '800' },
+                      ]}
+                    >
+                      {sev.label}
+                    </Text>
+                    <Text style={styles.severityDesc} numberOfLines={1}>
+                      {sev.desc}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        </View>
+
+        {/* Submit Button */}
         <TouchableOpacity
-          style={[styles.submitBtn, isSubmitting && styles.submitBtnDisabled]}
+          style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
           onPress={handleSubmit}
           disabled={isSubmitting}
-          activeOpacity={0.88}
+          activeOpacity={0.85}
         >
           {isSubmitting ? (
-            <>
-              <ActivityIndicator color="#0B0F19" size="small" />
-              <Text style={styles.submitBtnText}>Publishing Report...</Text>
-            </>
+            <ActivityIndicator size="small" color="#0A0A0C" />
           ) : (
             <>
-              <Text style={styles.submitBtnText}>Submit Report</Text>
-              <Ionicons name="arrow-forward-circle" size={20} color="#0B0F19" />
+              <Text style={styles.submitButtonText}>Buzz Issue to FixBee Feed</Text>
+              <Ionicons name="arrow-forward" size={18} color="#0A0A0C" />
             </>
           )}
         </TouchableOpacity>
-
-        <Text style={styles.submitNote}>
-          Your report goes live on the campus feed. Peer upvotes escalate visibility to campus administration.
-        </Text>
       </ScrollView>
-
-      {/* ─── Success Modal ───────────────────────────────────── */}
-      {showSuccessModal && (
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalIconCircle}>
-              <Ionicons name="checkmark-circle" size={48} color={Colors.accentSuccess} />
-            </View>
-            <Text style={styles.modalTitle}>Report Submitted!</Text>
-            <Text style={styles.modalTagline}>Buzz it. Fix it.</Text>
-            <Text style={styles.modalDesc}>
-              Your campus issue is now live in the community feed. As peers upvote it, institutional priority increases for faster resolution.
-            </Text>
-            <TouchableOpacity style={styles.modalBtn} onPress={handleFinishSuccess}>
-              <Text style={styles.modalBtnText}>View in Campus Feed</Text>
-              <Ionicons name="arrow-forward" size={16} color="#0B0F19" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screenContainer: {
     flex: 1,
     backgroundColor: Colors.bgDark,
   },
-  scrollContent: {
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 48,
+  scrollView: {
+    flex: 1,
   },
-
-  // ── Page Header
-  pageHeader: {
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 80,
+  },
+  headerRow: {
+    marginBottom: 12,
+  },
+  brandTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  screenTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: Colors.textPrimary,
+    letterSpacing: -0.4,
+  },
+  beeEmoji: {
+    fontSize: 22,
+  },
+  screenSubtitle: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  quotaCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    backgroundColor: '#16161D',
+    borderRadius: 10,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: '#242432',
+    marginBottom: 16,
+  },
+  quotaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  quotaText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  quotaDivider: {
+    width: 1,
+    height: 18,
+    backgroundColor: '#2A2A38',
+  },
+  sectionCard: {
     backgroundColor: Colors.bgCard,
-    borderRadius: 18,
-    padding: 20,
-    marginBottom: 20,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: Colors.borderSubtle,
-    alignItems: 'flex-start',
+    padding: 16,
+    marginBottom: 16,
   },
-  headerBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-    gap: 5,
-    marginBottom: 10,
-  },
-  headerBadgeText: {
-    fontSize: 11,
+  sectionHeader: {
+    fontSize: 14,
     fontWeight: '800',
-    color: '#0B0F19',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    color: Colors.textPrimary,
     marginBottom: 4,
   },
-  brandFix: {
-    fontSize: 26,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: -0.5,
+  sectionHelper: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginBottom: 12,
   },
-  brandBee: {
-    fontSize: 26,
-    fontWeight: '900',
-    color: Colors.primary,
-    letterSpacing: -0.5,
-  },
-  headerTagline: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    lineHeight: 18,
-  },
-
-  // ── Sections
-  section: {
-    marginBottom: 20,
-  },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 9,
-    letterSpacing: 0.2,
-  },
-  requiredStar: {
-    color: '#EF4444',
-  },
-
-  // ── Input
-  input: {
-    backgroundColor: Colors.bgInput,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    color: Colors.textPrimary,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-
-
-  // ── Category Pills
-  pillScroll: {
-    gap: 8,
-    paddingVertical: 2,
-  },
-  pill: {
+  photoActionRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.bgCard,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    gap: 5,
+    gap: 12,
   },
-  pillActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  pillText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  pillTextActive: {
-    color: '#0B0F19',
-    fontWeight: '800',
-  },
-
-  // ── Campus Zone
-  zoneRow: {
-    flexDirection: 'row',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
-  zonePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  uploadBox: {
     flex: 1,
-    minWidth: '28%',
-    backgroundColor: Colors.bgCard,
-    paddingHorizontal: 10,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: Colors.borderSubtle,
-    justifyContent: 'center',
-  },
-  zonePillActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  zoneText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-  zoneTextActive: {
-    color: '#0B0F19',
-    fontWeight: '800',
-  },
-
-  // ── Urgency
-  urgencyGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  urgencyCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.bgCard,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: Colors.borderSubtle,
-    gap: 6,
-    minWidth: '45%',
-    flex: 1,
-  },
-  urgencyLabel: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-  },
-
-  // ── Description + AI
-  descLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 9,
-  },
-  // Outer container that fuses textarea + AI button
-  descContainer: {
-    backgroundColor: Colors.bgInput,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    overflow: 'hidden',
-  },
-  textArea: {
-    minHeight: 110,
-    textAlignVertical: 'top',
-    color: Colors.textPrimary,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  descDivider: {
-    height: 1,
-    backgroundColor: Colors.borderSubtle,
-    marginHorizontal: 0,
-  },
-  // AI button fused at bottom — no separate border
-  aiBtn: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    gap: 8,
-    backgroundColor: 'rgba(255,184,0,0.08)',
+    backgroundColor: '#16161E',
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: '#2E2E3E',
+    borderRadius: 12,
+    paddingVertical: 18,
   },
-  aiBtnLoading: {
-    backgroundColor: 'rgba(255,184,0,0.05)',
-  },
-  aiBtnText: {
-    fontSize: 13,
+  uploadBoxTitle: {
+    fontSize: 12,
     fontWeight: '700',
-    color: Colors.primary,
-    letterSpacing: 0.2,
+    color: Colors.textPrimary,
+    marginTop: 6,
   },
-  aiBtnBadge: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  aiBtnBadgeText: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#0B0F19',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  aiUsedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    gap: 4,
-  },
-  aiUsedText: {
+  uploadBoxSub: {
     fontSize: 10,
-    fontWeight: '800',
-    color: '#0B0F19',
-  },
-  aiHint: {
-    fontSize: 11,
     color: Colors.textMuted,
-    marginTop: 7,
-    lineHeight: 16,
-    paddingHorizontal: 2,
-  },
-
-  // ── Photo
-  cameraOnlyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.bgCard,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: Colors.borderSubtle,
-    padding: 14,
-    gap: 14,
-  },
-  cameraIconCircle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: 'rgba(255,184,0,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cameraTextBlock: {
-    flex: 1,
-  },
-  cameraBtnTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 2,
-  },
-  cameraBtnSub: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    fontWeight: '500',
+    marginTop: 2,
   },
   imagePreviewContainer: {
-    height: 190,
-    borderRadius: 14,
+    borderRadius: 10,
     overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: Colors.primary,
     position: 'relative',
+    height: 180,
+    backgroundColor: '#16161E',
   },
   previewImage: {
     width: '100%',
     height: '100%',
   },
-  removeImageBtn: {
+  changeImageBtn: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(239, 68, 68, 0.9)',
+    bottom: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 4,
+  },
+  changeImageText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0A0A0C',
+  },
+  aiCard: {
+    backgroundColor: 'rgba(255, 193, 7, 0.08)',
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 193, 7, 0.35)',
+    padding: 14,
+    marginBottom: 16,
+  },
+  aiHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  aiBadge: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  imageLabel: {
-    position: 'absolute',
-    bottom: 8,
-    left: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(11, 15, 25, 0.75)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 4,
-  },
-  imageLabelText: {
-    fontSize: 11,
-    color: Colors.accentSuccess,
-    fontWeight: '700',
-  },
-
-  // ── Submit
-  submitBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: Colors.primary,
-    paddingVertical: 16,
-    borderRadius: 14,
-    marginTop: 6,
-    gap: 10,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.45,
-    shadowRadius: 12,
-    elevation: 7,
-  },
-  submitBtnDisabled: {
-    backgroundColor: Colors.primaryDark,
-    shadowOpacity: 0.2,
-  },
-  submitBtnText: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#0B0F19',
-    letterSpacing: 0.4,
-  },
-  submitNote: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    marginTop: 12,
-    lineHeight: 16,
-    paddingHorizontal: 10,
-  },
-
-  // ── Success Modal
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(11, 15, 25, 0.88)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-    zIndex: 999,
-  },
-  modalCard: {
-    width: '100%',
-    backgroundColor: Colors.bgCardElevated,
-    borderRadius: 22,
-    padding: 28,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: Colors.primary,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  modalIconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
   },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: Colors.textPrimary,
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  modalTagline: {
+  aiTitle: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: Colors.primary,
-    marginBottom: 14,
-    letterSpacing: 0.5,
   },
-  modalDesc: {
-    fontSize: 13,
+  aiDesc: {
+    fontSize: 11,
     color: Colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 22,
-    paddingHorizontal: 4,
+    marginTop: 1,
   },
-  modalBtn: {
+  aiPromptInput: {
+    backgroundColor: '#14141A',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#262634',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 12,
+    color: Colors.textPrimary,
+    marginBottom: 10,
+  },
+  aiGenerateButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    width: '100%',
     backgroundColor: Colors.primary,
-    paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 10,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  aiButtonDisabled: {
+    backgroundColor: '#2A2A36',
+  },
+  aiButtonText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0A0A0C',
+  },
+  inputGroup: {
+    marginBottom: 14,
+  },
+  inputLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  charCount: {
+    fontSize: 10,
+    color: Colors.textMuted,
+  },
+  textInput: {
+    backgroundColor: '#16161E',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#242432',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    fontSize: 13,
+    color: Colors.textPrimary,
+  },
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  chipsScroll: {
+    gap: 6,
+    paddingVertical: 4,
+  },
+  formChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16161E',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#282836',
+    gap: 5,
+  },
+  formChipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  formChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  formChipTextActive: {
+    color: '#0A0A0C',
+    fontWeight: '800',
+  },
+  locationSelectorRow: {
+    flexDirection: 'row',
     gap: 8,
   },
-  modalBtnText: {
-    fontSize: 15,
+  locationOption: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#16161E',
+    borderRadius: 8,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#242432',
+    gap: 4,
+  },
+  locationOptionActive: {
+    borderColor: Colors.primary,
+    backgroundColor: 'rgba(255, 193, 7, 0.08)',
+  },
+  locationOptionText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  locationOptionTextActive: {
+    color: Colors.primary,
+    fontWeight: '800',
+  },
+  severityRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  severityOption: {
+    flex: 1,
+    backgroundColor: '#16161E',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderWidth: 1,
+    borderColor: '#242432',
+  },
+  severityText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginBottom: 2,
+  },
+  severityDesc: {
+    fontSize: 9,
+    color: Colors.textMuted,
+  },
+  submitButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    gap: 8,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  submitButtonDisabled: {
+    backgroundColor: '#2A2A38',
+  },
+  submitButtonText: {
+    fontSize: 14,
     fontWeight: '900',
-    color: '#0B0F19',
+    color: '#0A0A0C',
+    letterSpacing: -0.2,
   },
 });

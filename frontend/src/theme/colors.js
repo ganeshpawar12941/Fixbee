@@ -1,68 +1,78 @@
 export const Colors = {
-  // Brand Amber Honey
-  primary: '#FFB800',
-  primaryDark: '#D97706',
-  primaryLight: '#FDE68A',
-  primaryGlow: 'rgba(255, 184, 0, 0.25)',
-  primaryGlowStrong: 'rgba(255, 184, 0, 0.5)',
+  // Pure Black & Yellow FixBee Theme
+  primary: '#FFC107',         // Pure Bumblebee Yellow
+  primaryDark: '#D99B00',
+  primaryLight: '#FFD54F',
+  primaryGlow: 'rgba(255, 193, 7, 0.18)',
 
-  // Backgrounds & Surfaces (Premium Deep Dark)
-  bgDark: '#0B0F19',
-  bgCard: '#131B2E',
-  bgCardElevated: '#1A243D',
-  bgInput: '#182238',
-  bgOverlay: 'rgba(11, 15, 25, 0.85)',
+  // Backgrounds & Surfaces (Clean Black)
+  bgDark: '#0A0A0C',          // True Deep Black
+  bgCard: '#121214',          // Solid Matte Dark Charcoal
+  bgCardElevated: '#18181C',  // Elevated Card Slate
+  bgInput: '#18181C',         // Clean Dark Input
+  bgOverlay: 'rgba(10, 10, 12, 0.90)',
 
-  // Borders & Dividers
-  borderSubtle: '#222F4C',
-  borderHighlight: '#FFB800',
+  // Borders & Accents (Yellow and Subtle Dark Borders)
+  borderSubtle: '#222226',
+  borderHighlight: '#FFC107',
   borderLight: 'rgba(255, 255, 255, 0.08)',
+  divider: '#1A1A1E',
 
-  // Text
-  textPrimary: '#F8FAFC',
-  textSecondary: '#94A3B8',
-  textMuted: '#64748B',
-  textInverse: '#0B0F19',
+  // Text Hierarchy
+  textPrimary: '#FFFFFF',
+  textSecondary: '#A1A1AA',
+  textMuted: '#71717A',
+  textInverse: '#0A0A0C',
 
-  // Status & Badges
-  statusReported: '#FBBF24',      // Yellow
-  statusInReview: '#FB923C',      // Orange
-  statusInProgress: '#38BDF8',    // Blue
-  statusResolved: '#34D399',      // Green
+  // Upvote Accents (All Yellow)
+  upvoteActive: '#FFC107',
+  upvoteInactive: '#71717A',
+  upvoteBg: 'rgba(255, 193, 7, 0.12)',
 
-  // Urgency
-  urgencyLow: '#94A3B8',
-  urgencyMedium: '#FBBF24',
-  urgencyHigh: '#F97316',
-  urgencyEmergency: '#EF4444',
-
-  // Buzz / Upvote
-  buzzActive: '#FFB800',
-  buzzInactive: '#64748B',
-  buzzBg: 'rgba(255, 184, 0, 0.12)',
+  // Status Badges (Strictly Yellow Accents on Dark)
+  statusSubmitted: '#FFC107',
+  statusUnderReview: '#FFB800',
+  statusInProgress: '#FFC107',
+  statusResolved: '#22C55E', // Green for resolved confirmation
+  statusRejected: '#EF4444', // Red for rejected
 
   // Accents
-  accentGoogle: '#4285F4',
-  accentSuccess: '#10B981',
-  accentWarning: '#F59E0B',
   accentDanger: '#EF4444',
-  accentPurple: '#A855F7',
+  accentSuccess: '#22C55E',
 };
 
-export const CampusZones = [
-  "Boys' Hostel",
-  "Girls' Hostel",
-  'General Campus',
+export const LocationTypes = [
+  { id: 'all', label: 'All Zones' },
+  { id: 'boys_hostel', label: "Boys' Hostel" },
+  { id: 'girls_hostel', label: "Girls' Hostel" },
+  { id: 'campus', label: 'Campus Grounds' },
 ];
 
 export const Categories = [
-  { id: 'all', label: 'All Reports', icon: 'apps' },
-  { id: 'electrical', label: 'Electrical & AC', icon: 'flash' },
-  { id: 'plumbing', label: 'Plumbing & Water', icon: 'water' },
-  { id: 'hostel', label: 'Hostel & Rooms', icon: 'bed' },
-  { id: 'labs', label: 'Labs & Computers', icon: 'hardware-chip' },
-  { id: 'wifi', label: 'WiFi & Internet', icon: 'wifi' },
-  { id: 'washroom', label: 'Hygiene & Washrooms', icon: 'sparkles' },
-  { id: 'classroom', label: 'Classroom & Furniture', icon: 'school' },
-  { id: 'canteen', label: 'Canteen & Food', icon: 'restaurant' },
+  { id: 'all', label: 'All' },
+  { id: 'electrical', label: 'Electrical' },
+  { id: 'plumbing', label: 'Plumbing' },
+  { id: 'civil', label: 'Civil Works' },
+  { id: 'cleaning', label: 'Cleaning' },
+  { id: 'furniture', label: 'Furniture' },
+  { id: 'water_supply', label: 'Water Supply' },
+  { id: 'washroom', label: 'Washrooms' },
+  { id: 'waste_management', label: 'Waste Mgmt' },
+  { id: 'garden_outdoor', label: 'Outdoor Grounds' },
+  { id: 'safety', label: 'Campus Safety' },
+  { id: 'other', label: 'Other' },
 ];
+
+export const SeverityLevels = [
+  { id: 'low', label: 'Low', color: '#A1A1AA' },
+  { id: 'medium', label: 'Medium', color: '#FFC107' },
+  { id: 'high', label: 'High Urgency', color: '#FFC107' },
+];
+
+export const StatusPills = {
+  submitted: { label: 'Submitted', color: '#FFC107', bg: 'rgba(255, 193, 7, 0.12)' },
+  under_review: { label: 'Under Review', color: '#FFB800', bg: 'rgba(255, 184, 0, 0.12)' },
+  in_progress: { label: 'In Progress', color: '#FFC107', bg: 'rgba(255, 193, 7, 0.12)' },
+  resolved: { label: 'Resolved', color: '#22C55E', bg: 'rgba(34, 197, 94, 0.12)' },
+  rejected: { label: 'Rejected', color: '#EF4444', bg: 'rgba(239, 68, 68, 0.12)' },
+};

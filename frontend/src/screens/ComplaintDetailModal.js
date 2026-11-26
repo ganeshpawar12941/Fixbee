@@ -3,504 +3,657 @@ import {
   StyleSheet,
   Text,
   View,
-  TouchableOpacity,
+  Modal,
   ScrollView,
   Image,
+  TouchableOpacity,
   TextInput,
-  Modal,
+  KeyboardAvoidingView,
+  Platform,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../theme/colors';
+import { Colors, StatusPills, Categories } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useComplaints } from '../context/ComplaintsContext';
 
-export default function ComplaintDetailModal({ complaint, visible, onClose, onDelete }) {
+export default function ComplaintDetailModal({
+  visible,
+  complaint,
+  onClose,
+  onLike,
+}) {
   const { user } = useAuth();
-  const { toggleBuzz, addComment } = useComplaints();
+  const { addAdditionalInfo, complaints } = useComplaints();
   const [commentText, setCommentText] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!complaint) return null;
 
-  const isBuzzed = user ? complaint.buzzedBy?.includes(user.id) : false;
-  const isMyComplaint = user && complaint.author?.id === user.id;
+  // Retrieve latest state of this complaint from context
+  const currentComplaint =
+    complaints.find((c) => (c._id || c.id) === (complaint._id || complaint.id)) || complaint;
 
-  const handlePostComment = () => {
+  const statusInfo = StatusPills[currentComplaint.status] || StatusPills.submitted;
+  const categoryObj = Categories.find((c) => c.id === currentComplaint.category) || {
+    id: currentComplaint.category,
+    label: currentComplaint.category || 'General',
+    icon: 'cube-outline',
+    color: Colors.primary,
+  };
+
+  const handleAddComment = async () => {
     if (!commentText.trim()) return;
-    addComment(complaint.id, commentText, user);
-    setCommentText('');
+    setIsSubmitting(true);
+    try {
+      await addAdditionalInfo(currentComplaint._id || currentComplaint.id, commentText.trim());
+      setCommentText('');
+    } catch {
+      Alert.alert('Error', 'Unable to post comment. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDelete = () => {
-    Alert.alert(
-      'Delete Issue',
-      'Are you sure you want to permanently delete this report? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            if (onDelete) {
-              onDelete(complaint.id);
-            }
-          },
-        },
-      ]
-    );
+  const formatTime = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' • ' + d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    } catch {
+      return '';
+    }
   };
 
-  const getNoticeLevel = (count) => {
-    if (count >= 50) return { label: 'Critical Campus Priority', color: '#EF4444', desc: 'Escalated to University Dean & Estate Management' };
-    if (count >= 20) return { label: 'High Visibility', color: '#F97316', desc: 'Ranked top priority among active student reports' };
-    if (count >= 10) return { label: 'Gaining Traction', color: '#FBBF24', desc: 'Dispatched to campus maintenance supervisor' };
-    return { label: 'Standard Campus Report', color: '#94A3B8', desc: 'Awaiting student peer verification' };
+  const getRoleBadgeStyle = (role) => {
+    switch (role) {
+      case 'warden':
+        return { label: 'Warden', color: Colors.primary, bg: 'rgba(255, 193, 7, 0.15)' };
+      case 'infrastructure_dean':
+        return { label: 'Dean Infra', color: Colors.primary, bg: 'rgba(255, 193, 7, 0.15)' };
+      case 'admin':
+        return { label: 'Admin', color: Colors.primary, bg: 'rgba(255, 193, 7, 0.15)' };
+      default:
+        return { label: 'Student', color: '#FFFFFF', bg: 'rgba(255, 255, 255, 0.1)' };
+    }
   };
 
-  const notice = getNoticeLevel(complaint.buzzCount);
+  const locationLabel =
+    currentComplaint.locationType === 'boys_hostel'
+      ? "Boys' Hostel"
+      : currentComplaint.locationType === 'girls_hostel'
+      ? "Girls' Hostel"
+      : 'Campus Grounds';
+
+  const categoryLabel = (currentComplaint.category || 'General').replace('_', ' ').toUpperCase();
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalSheet}>
-          {/* Header Bar */}
-          <View style={styles.headerBar}>
-            <View style={styles.headerTitleRow}>
-              <Text style={styles.headerTitle}>Issue Details</Text>
+    <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        style={styles.modalContainer}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        {/* Clean Modal Header */}
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={onClose} style={styles.backButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Ionicons name="close" size={24} color={Colors.textPrimary} />
+          </TouchableOpacity>
+
+          <View style={styles.subredditHeaderInfo}>
+            <Text style={styles.subredditTitle}>{categoryLabel}</Text>
+            <Text style={styles.postBySubtitle}>
+              Reported by {currentComplaint.student?.name || 'Student'}
+            </Text>
+          </View>
+
+          {/* Upvote Pill in Header */}
+          <TouchableOpacity
+            style={[styles.headerVotePill, currentComplaint.isLiked && styles.headerVotePillActive]}
+            onPress={() => onLike(currentComplaint._id || currentComplaint.id)}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={currentComplaint.isLiked ? 'arrow-up-circle' : 'arrow-up-circle-outline'}
+              size={18}
+              color={currentComplaint.isLiked ? Colors.primary : Colors.textMuted}
+            />
+            <Text style={[styles.headerVoteScore, currentComplaint.isLiked && styles.headerVoteScoreActive]}>
+              {currentComplaint.likesCount || 0}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView style={styles.scrollArea} contentContainerStyle={styles.scrollContent}>
+          {/* Flairs and Status Badges */}
+          <View style={styles.flairsRow}>
+            <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg, borderColor: `${statusInfo.color}50` }]}>
+              <Ionicons name={statusInfo.icon} size={13} color={statusInfo.color} style={{ marginRight: 4 }} />
+              <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>
+                {statusInfo.label}
+              </Text>
             </View>
-            <View style={styles.headerActionsRight}>
-              {isMyComplaint && (
-                <TouchableOpacity style={styles.headerDeleteBtn} onPress={handleDelete} activeOpacity={0.7}>
-                  <Ionicons name="trash-outline" size={18} color="#EF4444" />
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-                <Ionicons name="close" size={22} color={Colors.textPrimary} />
-              </TouchableOpacity>
+
+            <View style={styles.infoPill}>
+              <Ionicons name="location-sharp" size={12} color={Colors.primary} style={{ marginRight: 4 }} />
+              <Text style={styles.infoPillText}>{locationLabel}</Text>
+            </View>
+
+            <View style={styles.infoPill}>
+              <Ionicons name="alert-circle" size={12} color={Colors.primary} style={{ marginRight: 4 }} />
+              <Text style={styles.infoPillText}>{currentComplaint.severity?.toUpperCase()} URGENCY</Text>
             </View>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
-            {/* Notice Meter Callout */}
-            <View style={[styles.noticeBox, { borderColor: notice.color }]}>
-              <View style={styles.noticeBoxTop}>
-                <Text style={[styles.noticeBoxTag, { color: notice.color }]}>{notice.label}</Text>
-                <Text style={styles.noticeBoxCount}>{complaint.buzzCount} Student Buzzes</Text>
-              </View>
-              <Text style={styles.noticeBoxDesc}>{notice.desc}</Text>
-            </View>
+          {/* Post Title */}
+          <Text style={styles.detailTitle}>{currentComplaint.title}</Text>
 
-            {/* Author & Meta */}
-            <View style={styles.authorRow}>
-              <Image source={{ uri: complaint.author.avatar }} style={styles.authorAvatar} />
-              <View style={styles.authorInfo}>
-                <Text style={styles.authorName}>{complaint.author.name}</Text>
-                <Text style={styles.authorSub}>{complaint.author.department} · {complaint.author.email}</Text>
-              </View>
-              <View style={[styles.statusBadge, { borderColor: complaint.statusColor }]}>
-                <Text style={[styles.statusText, { color: complaint.statusColor }]}>{complaint.status}</Text>
+          {/* Post Description */}
+          <Text style={styles.detailDescription}>{currentComplaint.description}</Text>
+
+          {/* Main Complaint Image */}
+          {currentComplaint.imageUrl && (
+            <View style={styles.imageCard}>
+              <Image
+                source={{ uri: currentComplaint.imageUrl }}
+                style={styles.mainImage}
+                resizeMode="cover"
+              />
+              <View style={styles.imageCaptionBar}>
+                <Ionicons name="camera" size={12} color={Colors.textMuted} />
+                <Text style={styles.imageCaptionText}>Incident Photograph Submitted by Student</Text>
               </View>
             </View>
+          )}
 
-            {/* Location & Urgency */}
-            <View style={styles.metaChipsRow}>
-              <View style={styles.metaChip}>
-                <Ionicons name="location-sharp" size={14} color={Colors.primary} />
-                <Text style={styles.metaChipText}>{complaint.location}</Text>
+          {/* Resolution Photo Card (if resolved) */}
+          {currentComplaint.status === 'resolved' && currentComplaint.resolutionPhoto && (
+            <View style={styles.resolutionCard}>
+              <View style={styles.resolutionHeader}>
+                <Ionicons name="checkmark-done-circle" size={18} color="#22C55E" />
+                <Text style={styles.resolutionTitle}>Official Repair Verification Evidence</Text>
               </View>
-              <View style={[styles.metaChip, { backgroundColor: 'rgba(255, 184, 0, 0.1)' }]}>
-                <Ionicons name="alert-circle" size={14} color={Colors.primary} />
-                <Text style={[styles.metaChipText, { color: Colors.primary }]}>
-                  {complaint.urgency.toUpperCase()}
+              <Image
+                source={{ uri: currentComplaint.resolutionPhoto }}
+                style={styles.resolutionImage}
+                resizeMode="cover"
+              />
+              <Text style={styles.resolvedTimestampText}>
+                Resolved on {formatTime(currentComplaint.resolvedAt)}
+              </Text>
+            </View>
+          )}
+
+          {/* Status Pipeline Tracking Timeline */}
+          <View style={styles.timelineSection}>
+            <View style={styles.sectionHeaderRow}>
+              <Ionicons name="git-network-outline" size={16} color={Colors.primary} />
+              <Text style={styles.sectionTitle}>FixBee Status Pipeline</Text>
+            </View>
+
+            <View style={styles.timelineList}>
+              {currentComplaint.statusHistory && currentComplaint.statusHistory.length > 0 ? (
+                currentComplaint.statusHistory.map((step, idx) => {
+                  const stepStatusInfo = StatusPills[step.toStatus] || StatusPills.submitted;
+                  return (
+                    <View key={idx} style={styles.timelineStep}>
+                      <View style={styles.timelineLeftColumn}>
+                        <View style={[styles.timelineNode, { borderColor: stepStatusInfo.color }]}>
+                          <Ionicons name={stepStatusInfo.icon} size={12} color={stepStatusInfo.color} />
+                        </View>
+                        {idx < currentComplaint.statusHistory.length - 1 && (
+                          <View style={styles.timelineConnector} />
+                        )}
+                      </View>
+                      <View style={styles.timelineRightContent}>
+                        <View style={styles.timelineHeaderRow}>
+                          <Text style={[styles.timelineStatusName, { color: stepStatusInfo.color }]}>
+                            {stepStatusInfo.label}
+                          </Text>
+                          <Text style={styles.timelineTime}>{formatTime(step.changedAt)}</Text>
+                        </View>
+                        {step.remarks ? (
+                          <Text style={styles.timelineRemarks}>{step.remarks}</Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })
+              ) : (
+                <Text style={styles.noHistoryText}>Report registered in system.</Text>
+              )}
+            </View>
+          </View>
+
+          {/* Reddit Comments & Additional Information Discussion Thread */}
+          <View style={styles.discussionSection}>
+            <View style={styles.sectionHeaderRow}>
+              <Ionicons name="chatbubbles" size={16} color={Colors.primary} />
+              <Text style={styles.sectionTitle}>
+                Discussion & Official Updates ({currentComplaint.additionalInfo?.length || 0})
+              </Text>
+            </View>
+
+            {currentComplaint.additionalInfo && currentComplaint.additionalInfo.length > 0 ? (
+              currentComplaint.additionalInfo.map((info, idx) => {
+                const roleBadge = getRoleBadgeStyle(info.senderRole);
+                return (
+                  <View key={info._id || idx} style={styles.commentItem}>
+                    <View style={styles.commentHeaderRow}>
+                      <View style={[styles.commentAvatar, { backgroundColor: `${roleBadge.color}25` }]}>
+                        <Text style={[styles.commentAvatarText, { color: roleBadge.color }]}>
+                          {(info.senderName || 'U').charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+
+                      <View style={styles.commentMeta}>
+                        <View style={styles.commentNameRow}>
+                          <Text style={styles.commentAuthorName}>
+                            {info.senderName || 'Campus User'}
+                          </Text>
+                          <View style={[styles.roleBadge, { backgroundColor: roleBadge.bg }]}>
+                            <Text style={[styles.roleBadgeText, { color: roleBadge.color }]}>
+                              {roleBadge.label}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={styles.commentTime}>{formatTime(info.createdAt)}</Text>
+                      </View>
+                    </View>
+
+                    <Text style={styles.commentMessage}>{info.message}</Text>
+                  </View>
+                );
+              })
+            ) : (
+              <View style={styles.emptyCommentsCard}>
+                <Ionicons name="chatbox-outline" size={24} color={Colors.textMuted} />
+                <Text style={styles.emptyCommentsText}>
+                  No updates posted yet. Management and students can exchange information here.
                 </Text>
               </View>
-            </View>
-
-            {/* Title & Description */}
-            <Text style={styles.title}>{complaint.title}</Text>
-            <Text style={styles.description}>{complaint.description}</Text>
-
-            {/* Attached Photo */}
-            {complaint.imageUrl && (
-              <View style={styles.photoContainer}>
-                <Image source={{ uri: complaint.imageUrl }} style={styles.photo} resizeMode="cover" />
-              </View>
             )}
-
-            {/* Timeline Progress Tracker */}
-            <View style={styles.timelineSection}>
-              <Text style={styles.sectionHeader}>Campus Repair Timeline</Text>
-              <View style={styles.timelineStep}>
-                <View style={[styles.timelineDot, styles.dotDone]} />
-                <View style={styles.timelineContent}>
-                  <Text style={styles.stepTitle}>Issue Reported & Logged</Text>
-                  <Text style={styles.stepSubtitle}>Submitted by student into campus network</Text>
-                </View>
-              </View>
-
-              <View style={styles.timelineStep}>
-                <View style={[styles.timelineDot, complaint.status !== 'Reported' ? styles.dotDone : styles.dotPending]} />
-                <View style={styles.timelineContent}>
-                  <Text style={styles.stepTitle}>Administration Review</Text>
-                  <Text style={styles.stepSubtitle}>Campus facility manager assessed priority</Text>
-                </View>
-              </View>
-
-              <View style={styles.timelineStep}>
-                <View style={[styles.timelineDot, complaint.status === 'In Progress' || complaint.status === 'Resolved' ? styles.dotDone : styles.dotPending]} />
-                <View style={styles.timelineContent}>
-                  <Text style={styles.stepTitle}>Work In Progress</Text>
-                  <Text style={styles.stepSubtitle}>Technicians and tools dispatched</Text>
-                </View>
-              </View>
-
-              <View style={styles.timelineStep}>
-                <View style={[styles.timelineDot, complaint.status === 'Resolved' ? styles.dotDone : styles.dotPending]} />
-                <View style={styles.timelineContent}>
-                  <Text style={styles.stepTitle}>Resolved & Verified</Text>
-                  <Text style={styles.stepSubtitle}>Inspection completed and signed off</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Comments & Discussion */}
-            <View style={styles.commentsSection}>
-              <Text style={styles.sectionHeader}>Campus Community Notes ({complaint.comments?.length || 0})</Text>
-
-              {complaint.comments?.map((c) => (
-                <View key={c.id} style={styles.commentItem}>
-                  <View style={styles.commentHeader}>
-                    <Text style={styles.commentAuthor}>{c.author}</Text>
-                    <Text style={styles.commentTime}>{c.time}</Text>
-                  </View>
-                  <Text style={styles.commentBody}>{c.text}</Text>
-                </View>
-              ))}
-
-              {/* Add Comment Input */}
-              <View style={styles.addCommentRow}>
-                <TextInput
-                  style={styles.commentInput}
-                  placeholder="Add an update or note..."
-                  placeholderTextColor={Colors.textMuted}
-                  value={commentText}
-                  onChangeText={setCommentText}
-                />
-                <TouchableOpacity style={styles.postCommentBtn} onPress={handlePostComment}>
-                  <Ionicons name="send" size={16} color="#0B0F19" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </ScrollView>
-
-          {/* Sticky Bottom Bar with Buzz Action */}
-          <View style={styles.bottomBar}>
-            <TouchableOpacity
-              style={[styles.bigBuzzBtn, isBuzzed && styles.bigBuzzBtnActive]}
-              onPress={() => toggleBuzz(complaint.id, user?.id || 'guest')}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name={isBuzzed ? 'heart' : 'heart-outline'}
-                size={22}
-                color={isBuzzed ? '#0B0F19' : Colors.primary}
-              />
-              <Text style={[styles.bigBuzzText, isBuzzed && styles.bigBuzzTextActive]}>
-                {isBuzzed ? 'Upvoted by You' : 'Upvote Issue'} ({complaint.buzzCount})
-              </Text>
-            </TouchableOpacity>
           </View>
+        </ScrollView>
+
+        {/* Reddit-Style Comment Input Bar */}
+        <View style={styles.commentInputBar}>
+          <TextInput
+            style={styles.commentInput}
+            placeholder={`Add an update as ${user?.name?.split(' ')[0] || 'User'} (${user?.role || 'student'})...`}
+            placeholderTextColor={Colors.textMuted}
+            value={commentText}
+            onChangeText={setCommentText}
+            multiline
+            maxLength={1000}
+          />
+          <TouchableOpacity
+            style={[
+              styles.sendButton,
+              (!commentText.trim() || isSubmitting) && styles.sendButtonDisabled,
+            ]}
+            onPress={handleAddComment}
+            disabled={!commentText.trim() || isSubmitting}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name="send"
+              size={18}
+              color={commentText.trim() && !isSubmitting ? '#0A0A0C' : Colors.textMuted}
+            />
+          </TouchableOpacity>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  modalOverlay: {
+  modalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(11, 15, 25, 0.75)',
-    justifyContent: 'flex-end',
+    backgroundColor: Colors.bgDark,
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
   },
-  modalSheet: {
-    height: '90%',
-    backgroundColor: Colors.bgCardElevated,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderTopWidth: 1.5,
-    borderTopColor: Colors.borderSubtle,
-    overflow: 'hidden',
-  },
-  headerBar: {
+  topBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: Colors.bgCardElevated,
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderSubtle,
   },
-  headerTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  backButton: {
+    padding: 4,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-  },
-  headerActionsRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerDeleteBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-  },
-  closeBtn: {
-    padding: 6,
-  },
-  scrollBody: {
-    padding: 20,
-    paddingBottom: 80,
-  },
-  noticeBox: {
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1.5,
-    marginBottom: 16,
-  },
-  noticeBoxTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  noticeBoxTag: {
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  noticeBoxCount: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  noticeBoxDesc: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  authorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  authorAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-  },
-  authorInfo: {
+  subredditHeaderInfo: {
     flex: 1,
+    marginLeft: 12,
   },
-  authorName: {
+  subredditTitle: {
     fontSize: 14,
-    fontWeight: '700',
-    color: Colors.textPrimary,
+    fontWeight: '800',
+    color: Colors.primary,
   },
-  authorSub: {
+  postBySubtitle: {
     fontSize: 11,
     color: Colors.textMuted,
   },
-  statusBadge: {
-    paddingHorizontal: 10,
+  headerVotePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E1E26',
+    paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2A2A36',
+    gap: 4,
+  },
+  headerVotePillActive: {
+    backgroundColor: Colors.upvoteBg,
+    borderColor: Colors.primary,
+  },
+  headerVoteScore: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: Colors.textSecondary,
+  },
+  headerVoteScoreActive: {
+    color: Colors.primary,
+  },
+  scrollArea: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  flairsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 20,
     borderWidth: 1,
   },
-  statusText: {
+  statusBadgeText: {
     fontSize: 11,
     fontWeight: '800',
   },
-  metaChipsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 14,
-  },
-  metaChip: {
+  infoPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.bgCard,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    gap: 6,
+    backgroundColor: '#191922',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#282836',
   },
-  metaChipText: {
-    fontSize: 12,
+  infoPillText: {
+    fontSize: 10,
+    fontWeight: '700',
     color: Colors.textSecondary,
-    fontWeight: '600',
   },
-  title: {
-    fontSize: 19,
-    fontWeight: '800',
+  detailTitle: {
+    fontSize: 20,
+    fontWeight: '900',
     color: Colors.textPrimary,
     lineHeight: 26,
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  description: {
+  detailDescription: {
     fontSize: 14,
-    color: Colors.textSecondary,
     lineHeight: 22,
+    color: '#D4D4D8',
     marginBottom: 16,
   },
-  photoContainer: {
-    height: 220,
-    borderRadius: 14,
+  imageCard: {
+    borderRadius: 12,
     overflow: 'hidden',
-    marginBottom: 20,
+    backgroundColor: Colors.bgCard,
     borderWidth: 1,
     borderColor: Colors.borderSubtle,
+    marginBottom: 18,
   },
-  photo: {
+  mainImage: {
     width: '100%',
-    height: '100%',
+    height: 240,
+  },
+  imageCaptionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#14141A',
+  },
+  imageCaptionText: {
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  resolutionCard: {
+    backgroundColor: 'rgba(34, 197, 94, 0.08)',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+    padding: 12,
+    marginBottom: 18,
+  },
+  resolutionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  resolutionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#22C55E',
+  },
+  resolutionImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  resolvedTimestampText: {
+    fontSize: 10,
+    color: '#22C55E',
+    fontWeight: '600',
+    textAlign: 'right',
   },
   timelineSection: {
     backgroundColor: Colors.bgCard,
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 20,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.borderSubtle,
+    padding: 14,
+    marginBottom: 18,
   },
-  sectionHeader: {
-    fontSize: 14,
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 13,
     fontWeight: '800',
     color: Colors.textPrimary,
-    marginBottom: 14,
+  },
+  timelineList: {
+    paddingLeft: 4,
   },
   timelineStep: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 14,
+    marginBottom: 12,
   },
-  timelineDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginTop: 4,
-    marginRight: 12,
+  timelineLeftColumn: {
+    alignItems: 'center',
+    width: 24,
+    marginRight: 10,
   },
-  dotDone: {
-    backgroundColor: Colors.accentSuccess,
+  timelineNode: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#16161E',
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  dotPending: {
-    backgroundColor: Colors.borderSubtle,
-  },
-  timelineContent: {
+  timelineConnector: {
+    width: 2,
     flex: 1,
+    backgroundColor: '#2A2A38',
+    marginTop: 4,
   },
-  stepTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textPrimary,
+  timelineRightContent: {
+    flex: 1,
+    paddingTop: 1,
   },
-  stepSubtitle: {
-    fontSize: 11,
-    color: Colors.textMuted,
-  },
-  commentsSection: {
-    marginBottom: 20,
-  },
-  commentItem: {
-    backgroundColor: Colors.bgCard,
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 8,
-  },
-  commentHeader: {
+  timelineHeaderRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 2,
   },
-  commentAuthor: {
+  timelineStatusName: {
     fontSize: 12,
-    fontWeight: '700',
-    color: Colors.primary,
+    fontWeight: '800',
   },
-  commentTime: {
+  timelineTime: {
     fontSize: 10,
     color: Colors.textMuted,
   },
-  commentBody: {
-    fontSize: 13,
+  timelineRemarks: {
+    fontSize: 11,
     color: Colors.textSecondary,
+    lineHeight: 16,
   },
-  addCommentRow: {
+  noHistoryText: {
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  discussionSection: {
+    backgroundColor: Colors.bgCard,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.borderSubtle,
+    padding: 14,
+    marginBottom: 16,
+  },
+  commentItem: {
+    backgroundColor: '#16161E',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#242430',
+    padding: 10,
+    marginBottom: 10,
+  },
+  commentHeaderRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  commentAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  commentAvatarText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  commentMeta: {
+    flex: 1,
+  },
+  commentNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  commentAuthorName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  roleBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  roleBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  commentTime: {
+    fontSize: 9,
+    color: Colors.textMuted,
+    marginTop: 1,
+  },
+  commentMessage: {
+    fontSize: 12,
+    color: '#E4E4E7',
+    lineHeight: 18,
+  },
+  emptyCommentsCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
     gap: 8,
-    marginTop: 8,
+  },
+  emptyCommentsText: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  commentInputBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: Colors.bgCardElevated,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderSubtle,
+    gap: 8,
   },
   commentInput: {
     flex: 1,
     backgroundColor: Colors.bgInput,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: Colors.textPrimary,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     fontSize: 13,
+    color: Colors.textPrimary,
+    maxHeight: 80,
     borderWidth: 1,
     borderColor: Colors.borderSubtle,
   },
-  postCommentBtn: {
+  sendButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: Colors.primary,
-    width: 44,
-    height: 44,
-    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 16,
-    backgroundColor: Colors.bgCardElevated,
-    borderTopWidth: 1,
-    borderTopColor: Colors.borderSubtle,
-  },
-  bigBuzzBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.buzzBg,
-    paddingVertical: 14,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: Colors.primary,
-    gap: 8,
-  },
-  bigBuzzBtnActive: {
-    backgroundColor: Colors.primary,
-  },
-  bigBuzzText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: Colors.primary,
-  },
-  bigBuzzTextActive: {
-    color: '#0B0F19',
+  sendButtonDisabled: {
+    backgroundColor: '#262632',
   },
 });

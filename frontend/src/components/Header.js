@@ -5,14 +5,39 @@ import { Colors } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useComplaints } from '../context/ComplaintsContext';
 
-export default function Header({ onProfilePress, onIntroPress }) {
-  const { user } = useAuth();
-  const { backendStatus } = useComplaints();
+export default function Header({ onProfilePress, onNotificationsPress }) {
+  const { user, switchRole } = useAuth();
+  const { backendStatus, unreadNotificationsCount } = useComplaints();
+
+  const getRoleDisplayName = (role) => {
+    switch (role) {
+      case 'warden':
+        return 'Warden';
+      case 'infrastructure_dean':
+        return 'Dean Infra';
+      case 'admin':
+        return 'Admin';
+      default:
+        return 'Student';
+    }
+  };
+
+  const getRoleColor = (_role) => {
+    return Colors.primary;
+  };
+
+  const cycleRole = () => {
+    const roles = ['student', 'warden', 'infrastructure_dean', 'admin'];
+    const currentIdx = roles.indexOf(user?.role || 'student');
+    const nextRole = roles[(currentIdx + 1) % roles.length];
+    switchRole(nextRole);
+  };
 
   return (
     <View style={styles.headerContainer}>
+      {/* Left: Brand Identity */}
       <View style={styles.leftSection}>
-        <TouchableOpacity style={styles.logoRow} onPress={onIntroPress} activeOpacity={0.8}>
+        <View style={styles.logoRow}>
           <View style={styles.logoCircle}>
             <Image
               source={require('../../assets/fixbee_logo.jpg')}
@@ -24,27 +49,56 @@ export default function Header({ onProfilePress, onIntroPress }) {
               <Text style={styles.brandTitleFix}>Fix</Text>
               <Text style={styles.brandTitleBee}>bee</Text>
             </View>
-            <Text style={styles.brandTagline}>buzz it  fix it</Text>
+            <Text style={styles.brandTagline}>buzz it • fix it</Text>
           </View>
-        </TouchableOpacity>
+        </View>
       </View>
 
+      {/* Right: Status Pill, Role Chip, Notifications, Profile */}
       <View style={styles.rightSection}>
-        {/* Backend Connectivity Badge */}
-        <View style={[styles.apiBadge, backendStatus === 'online' ? styles.apiOnline : styles.apiSync]}>
-          <View style={[styles.statusDot, backendStatus === 'online' ? styles.dotGreen : styles.dotAmber]} />
+        {/* Backend Online / Local Status */}
+        <View style={[styles.apiBadge, backendStatus === 'online' ? styles.apiOnline : styles.apiOffline]}>
+          <View style={[styles.statusDot, backendStatus === 'online' ? styles.dotGreen : styles.dotYellow]} />
           <Text style={styles.apiText}>
-            {backendStatus === 'online' ? 'API Online' : 'Local Sync'}
+            {backendStatus === 'online' ? 'Live' : 'Sync'}
           </Text>
         </View>
+
+        {/* Quick Role Cycle Chip */}
+        <TouchableOpacity
+          style={[styles.roleChip, { borderColor: `${getRoleColor(user?.role)}50` }]}
+          onPress={cycleRole}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <View style={[styles.roleDot, { backgroundColor: getRoleColor(user?.role) }]} />
+          <Text style={[styles.roleText, { color: getRoleColor(user?.role) }]}>
+            {getRoleDisplayName(user?.role)}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Notifications Bell */}
+        <TouchableOpacity
+          style={styles.bellButton}
+          onPress={onNotificationsPress}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="notifications-outline" size={20} color={Colors.textPrimary} />
+          {unreadNotificationsCount > 0 && (
+            <View style={styles.badgeCount}>
+              <Text style={styles.badgeText}>{unreadNotificationsCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
 
         {/* User Profile Avatar */}
         {user ? (
           <TouchableOpacity style={styles.avatarButton} onPress={onProfilePress} activeOpacity={0.8}>
-            <Image source={{ uri: user.avatar }} style={styles.avatarImage} />
-            <View style={styles.onlineBadge}>
-              <Ionicons name="shield-checkmark" size={10} color="#0B0F19" />
-            </View>
+            <Image
+              source={{ uri: user.profilePicture || user.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150' }}
+              style={styles.avatarImage}
+            />
           </TouchableOpacity>
         ) : null}
       </View>
@@ -57,10 +111,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
-    backgroundColor: Colors.bgDark,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: Colors.bgCardElevated,
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderSubtle,
   },
@@ -71,20 +124,23 @@ const styles = StyleSheet.create({
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
   logoCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    overflow: 'hidden',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 2,
     borderColor: Colors.primary,
-    marginRight: 10,
-    backgroundColor: Colors.bgCard,
+    overflow: 'hidden',
   },
   logoImage: {
-    width: '100%',
-    height: '100%',
+    width: '94%',
+    height: '94%',
+    borderRadius: 17,
   },
   titleColumn: {
     justifyContent: 'center',
@@ -94,24 +150,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   brandTitleFix: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '900',
     color: '#FFFFFF',
-    letterSpacing: -0.5,
+    letterSpacing: -0.4,
   },
   brandTitleBee: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '900',
-    color: '#F5A623',
-    letterSpacing: -0.5,
+    color: Colors.primary,
+    letterSpacing: -0.4,
   },
   brandTagline: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '600',
-    color: Colors.textSecondary,
-    letterSpacing: 2.2,
-    textTransform: 'lowercase',
-    marginTop: 1,
+    color: Colors.textMuted,
+    letterSpacing: 0.8,
   },
   rightSection: {
     flexDirection: 'row',
@@ -121,61 +175,86 @@ const styles = StyleSheet.create({
   apiBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 10,
     borderWidth: 1,
   },
   apiOnline: {
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    borderColor: 'rgba(16, 185, 129, 0.3)',
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    borderColor: 'rgba(34, 197, 94, 0.3)',
   },
-  apiSync: {
-    backgroundColor: 'rgba(255, 184, 0, 0.12)',
-    borderColor: 'rgba(255, 184, 0, 0.3)',
+  apiOffline: {
+    backgroundColor: 'rgba(255, 193, 7, 0.12)',
+    borderColor: 'rgba(255, 193, 7, 0.3)',
   },
   statusDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    marginRight: 5,
+    marginRight: 4,
   },
   dotGreen: {
-    backgroundColor: Colors.accentSuccess,
+    backgroundColor: '#22C55E',
   },
-  dotAmber: {
+  dotYellow: {
     backgroundColor: Colors.primary,
   },
   apiText: {
-    fontSize: 10,
-    fontWeight: '600',
+    fontSize: 9,
+    fontWeight: '700',
     color: Colors.textSecondary,
   },
-  avatarButton: {
+  roleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16161E',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 4,
+  },
+  roleDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  roleText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  bellButton: {
+    padding: 6,
     position: 'relative',
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+  },
+  badgeCount: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: Colors.primary,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  badgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#0A0A0C',
+  },
+  avatarButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    overflow: 'hidden',
     borderWidth: 1.5,
     borderColor: Colors.primary,
-    overflow: 'visible',
   },
   avatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 18,
-  },
-  onlineBadge: {
-    position: 'absolute',
-    bottom: -2,
-    right: -2,
-    backgroundColor: Colors.primary,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.bgDark,
   },
 });
