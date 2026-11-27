@@ -6,10 +6,10 @@ import {
   TouchableOpacity,
   Image,
   Animated,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, StatusPills } from '../theme/colors';
+import { useFixbeeAlert } from '../context/FixbeeAlertContext';
 
 export default function ComplaintCard({
   complaint,
@@ -18,8 +18,8 @@ export default function ComplaintCard({
   currentUser,
   onDelete,
 }) {
+  const showAlert = useFixbeeAlert();
   const scaleAnim = useRef(new Animated.Value(1)).current;
-  const [showDescription, setShowDescription] = useState(false);
   const [imgError, setImgError] = useState(false);
 
   const isLiked = complaint.isLiked;
@@ -37,12 +37,12 @@ export default function ComplaintCard({
       Animated.timing(scaleAnim, { toValue: 1, duration: 110, useNativeDriver: true }),
     ]).start();
     Promise.resolve(onLike(complaint._id || complaint.id)).catch((error) => {
-      Alert.alert('Unable to update vote', error.message || 'Please try again.');
+      showAlert('Unable to update vote', error.message || 'Please try again.');
     });
   };
 
   const handleDelete = () => {
-    Alert.alert(
+    showAlert(
       'Delete Complaint',
       'Are you sure you want to delete this issue?',
       [
@@ -54,7 +54,7 @@ export default function ComplaintCard({
             try {
               await onDelete?.(complaint._id || complaint.id);
             } catch (error) {
-              Alert.alert('Unable to delete complaint', error.message || 'Please try again.');
+              showAlert('Unable to delete complaint', error.message || 'Please try again.');
             }
           },
         },
@@ -112,6 +112,10 @@ export default function ComplaintCard({
         <Text style={styles.titleText}>{complaint.title}</Text>
       </TouchableOpacity>
 
+      {complaint.description ? (
+        <Text style={styles.descriptionText}>{complaint.description}</Text>
+      ) : null}
+
       {/* 3. Image Preview */}
       {complaint.imageUrl && !imgError && (
         <TouchableOpacity
@@ -135,32 +139,6 @@ export default function ComplaintCard({
           )}
         </TouchableOpacity>
       )}
-
-      {/* 4. Description Toggle Button (No long paragraph shown by default!) */}
-      {complaint.description ? (
-        <View style={styles.descSection}>
-          <TouchableOpacity
-            style={styles.toggleDescButton}
-            onPress={() => setShowDescription(!showDescription)}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name={showDescription ? 'chevron-up' : 'chevron-down'}
-              size={14}
-              color={Colors.primary}
-            />
-            <Text style={styles.toggleDescText}>
-              {showDescription ? 'Hide Description' : 'Show Description'}
-            </Text>
-          </TouchableOpacity>
-
-          {showDescription && (
-            <View style={styles.descriptionBox}>
-              <Text style={styles.descriptionText}>{complaint.description}</Text>
-            </View>
-          )}
-        </View>
-      ) : null}
 
       {/* 5. Minimal Black & Yellow Action Bar */}
       <View style={styles.actionBar}>
@@ -292,34 +270,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#22C55E',
   },
-  descSection: {
-    marginBottom: 8,
-  },
-  toggleDescButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingVertical: 4,
-    paddingHorizontal: 2,
-    gap: 4,
-  },
-  toggleDescText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  descriptionBox: {
-    backgroundColor: '#16161C',
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 6,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-  },
   descriptionText: {
     fontSize: 12,
     color: Colors.textSecondary,
     lineHeight: 18,
+    marginBottom: 10,
   },
   actionBar: {
     flexDirection: 'row',

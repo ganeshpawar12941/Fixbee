@@ -6,16 +6,17 @@ import {
   ScrollView,
   TouchableOpacity,
   Modal,
-  Alert,
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, StatusPills } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useComplaints } from '../context/ComplaintsContext';
+import { useFixbeeAlert } from '../context/FixbeeAlertContext';
 import ResolveModal from '../components/ResolveModal';
 
 export default function ManagementPanelScreen({ onSelectComplaint }) {
+  const showAlert = useFixbeeAlert();
   const { user } = useAuth();
   const {
     complaints,
@@ -40,7 +41,7 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
     try {
       await refreshLocalData();
     } catch (error) {
-      Alert.alert('Unable to refresh', error.message || 'Please try again.');
+      showAlert('Unable to refresh', error.message || 'Please try again.');
     } finally {
       setRefreshing(false);
     }
@@ -115,7 +116,7 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
       );
       setSelectedActionTarget(null);
     } catch (error) {
-      Alert.alert('Status Update Failed', error.message || 'Unable to update complaint status.');
+      showAlert('Status Update Failed', error.message || 'Unable to update complaint status.');
     }
   };
 

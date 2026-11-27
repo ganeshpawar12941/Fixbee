@@ -133,7 +133,16 @@ export const AuthProvider = ({ children }) => {
       if (Platform.OS !== 'web') {
         try {
           const { GoogleSignin } = await import('@react-native-google-signin/google-signin');
-          await GoogleSignin.signOut();
+          const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+          const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+
+          if (webClientId) {
+            GoogleSignin.configure({
+              webClientId,
+              ...(Platform.OS === 'ios' && iosClientId ? { iosClientId } : {}),
+            });
+            await GoogleSignin.signOut();
+          }
         } catch (err) {
           console.warn('Could not clear the native Google account session.', err);
         }

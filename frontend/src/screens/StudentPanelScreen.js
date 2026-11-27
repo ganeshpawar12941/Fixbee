@@ -6,19 +6,20 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  Alert,
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, StatusPills } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useComplaints } from '../context/ComplaintsContext';
+import { useFixbeeAlert } from '../context/FixbeeAlertContext';
 
 export default function StudentPanelScreen({
   onSelectComplaint,
   onNavigateAdd,
   onEditComplaint,
 }) {
+  const showAlert = useFixbeeAlert();
   const { user } = useAuth();
   const {
     complaints,
@@ -43,14 +44,14 @@ export default function StudentPanelScreen({
     try {
       await refreshLocalData();
     } catch (error) {
-      Alert.alert('Unable to refresh', error.message || 'Please try again.');
+      showAlert('Unable to refresh', error.message || 'Please try again.');
     } finally {
       setRefreshing(false);
     }
   };
 
   const handleDelete = (cmpId) => {
-    Alert.alert(
+    showAlert(
       'Withdraw Complaint',
       'Are you sure you want to withdraw this complaint from the campus queue?',
       [
@@ -62,7 +63,7 @@ export default function StudentPanelScreen({
             try {
               await deleteComplaint(cmpId);
             } catch (error) {
-              Alert.alert('Unable to withdraw complaint', error.message || 'Please try again.');
+              showAlert('Unable to withdraw complaint', error.message || 'Please try again.');
             }
           },
         },

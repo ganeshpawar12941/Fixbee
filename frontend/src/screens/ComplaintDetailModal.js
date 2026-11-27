@@ -8,13 +8,13 @@ import {
   Image,
   TouchableOpacity,
   TextInput,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, StatusPills } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useComplaints } from '../context/ComplaintsContext';
+import { useFixbeeAlert } from '../context/FixbeeAlertContext';
 
 export default function ComplaintDetailModal({
   visible,
@@ -22,6 +22,7 @@ export default function ComplaintDetailModal({
   onClose,
   onLike,
 }) {
+  const showAlert = useFixbeeAlert();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { complaints, addAdditionalInfo, getComplaintDetails } = useComplaints();
@@ -42,7 +43,7 @@ export default function ComplaintDetailModal({
     let active = true;
     getComplaintDetails(complaintId).catch((error) => {
       if (active) {
-        Alert.alert('Unable to load complaint details', error.message || 'Please try again.');
+        showAlert('Unable to load complaint details', error.message || 'Please try again.');
       }
     });
     return () => {
@@ -88,7 +89,7 @@ export default function ComplaintDetailModal({
       await addAdditionalInfo(currentComplaint._id || currentComplaint.id, additionalInfoText);
       setAdditionalInfoText('');
     } catch (error) {
-      Alert.alert('Unable to add information', error.message || 'Please try again.');
+      showAlert('Unable to add information', error.message || 'Please try again.');
     } finally {
       setSavingInfo(false);
     }

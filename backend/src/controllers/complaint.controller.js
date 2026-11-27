@@ -20,7 +20,6 @@ import asyncHandler from "../utils/asyncHandler.js";
 import fs from "fs/promises";
 
 import {
-    validateComplaintImage,
     generateComplaintDetails,
 } from "../services/ai.service.js";
 
@@ -297,43 +296,33 @@ export const generateComplaintDetailsController = asyncHandler(
                 );
             }
 
-            // Step 1: Validate image
-            const imageResult = await validateComplaintImage(file);
+            // Validate the image and generate details in one model request.
+            const details = await generateComplaintDetails(file, description, req.user.id);
 
-            if (imageResult.status === "invalid") {
+            if (details.status === "invalid") {
                 const strikeResult = await recordInvalidImageStrike(req.user.id);
 
                 if (strikeResult.blocked) {
                     throw new ApiError(
                         403,
-                        `You have submitted 4 invalid images. Your complaint submissions are blocked for 7 days, until ${strikeResult.blockedUntil.toLocaleString("en-IN")}.`
+                        `You have submitted 10 invalid images. Your complaint submissions are blocked for 7 days, until ${strikeResult.blockedUntil.toLocaleString("en-IN")}.`
                     );
                 }
 
                 throw new ApiError(
                     400,
-                    `${imageResult.reason || "Invalid complaint image"}. Warning: ${strikeResult.strikes}/4 invalid image attempts.`
+                    `${details.reason || "Invalid complaint image"}. Warning: ${strikeResult.strikes}/10 invalid image attempts.`
                 );
-            }
-
-            if (imageResult.status === "uncertain") {
-                throw new ApiError(
-                    422,
-                    imageResult.reason || "Unable to verify this image"
-                );
-            }
-
-            // Step 2: Generate complaint details
-            const details = await generateComplaintDetails(
-                file,
-                description
-            );
-
-            if (details.status === "mismatch") {
-                throw new ApiError(422, details.reason);
             }
 
             if (details.status === "uncertain") {
+                throw new ApiError(
+                    422,
+                    details.reason || "Unable to verify this image"
+                );
+            }
+
+            if (details.status === "mismatch") {
                 throw new ApiError(422, details.reason);
             }
 

@@ -10,7 +10,6 @@ import {
   ScrollView,
   Modal,
   PanResponder,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Categories, LocationTypes, StatusPills, SeverityLevels } from '../theme/colors';
@@ -19,12 +18,14 @@ import { useComplaints } from '../context/ComplaintsContext';
 import Header from '../components/Header';
 import ComplaintCard from '../components/ComplaintCard';
 import ComplaintDetailModal from './ComplaintDetailModal';
+import { useFixbeeAlert } from '../context/FixbeeAlertContext';
 
 export default function HomeScreen({
   onNavigateAdd,
   onProfilePress,
   onNotificationsPress,
 }) {
+  const showAlert = useFixbeeAlert();
   const { user } = useAuth();
   const {
     feedComplaints,
@@ -82,7 +83,7 @@ export default function HomeScreen({
     try {
       await refreshLocalData();
     } catch (error) {
-      Alert.alert('Unable to refresh', error.message || 'Please try again.');
+      showAlert('Unable to refresh', error.message || 'Please try again.');
     } finally {
       setRefreshing(false);
     }

@@ -1,7 +1,8 @@
 import React from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Image, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
+import { useFixbeeAlert } from '../context/FixbeeAlertContext';
 
 export default function TrendingSpotlight({
   complaint,
@@ -11,12 +12,13 @@ export default function TrendingSpotlight({
   currentUser,
   onDelete,
 }) {
+  const showAlert = useFixbeeAlert();
   if (!complaint) return null;
 
   const isMyComplaint = currentUser && complaint.author?.id === currentUser.id;
 
   const handleDeletePress = () => {
-    Alert.alert(
+    showAlert(
       'Delete Issue',
       'Are you sure you want to delete this issue? This will remove it from campus feeds.',
       [

@@ -6,12 +6,12 @@ import {
   Modal,
   TouchableOpacity,
   Image,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
+import { useFixbeeAlert } from '../context/FixbeeAlertContext';
 
 export default function ResolveModal({
   visible,
@@ -19,6 +19,7 @@ export default function ResolveModal({
   onClose,
   onConfirmResolve,
 }) {
+  const showAlert = useFixbeeAlert();
   const [photoAsset, setPhotoAsset] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -28,7 +29,7 @@ export default function ResolveModal({
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Gallery access is needed to upload a resolution photo.');
+        showAlert('Permission Required', 'Gallery access is needed to upload a resolution photo.');
         return;
       }
 
@@ -44,7 +45,7 @@ export default function ResolveModal({
         setPhotoAsset(result.assets[0]);
       }
     } catch {
-      Alert.alert('Error', 'Could not select image from gallery.');
+      showAlert('Error', 'Could not select image from gallery.');
     }
   };
 
@@ -52,7 +53,7 @@ export default function ResolveModal({
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Camera access is needed to take a resolution verification photo.');
+        showAlert('Permission Required', 'Camera access is needed to take a resolution verification photo.');
         return;
       }
 
@@ -67,13 +68,13 @@ export default function ResolveModal({
         setPhotoAsset(result.assets[0]);
       }
     } catch {
-      Alert.alert('Error', 'Could not capture photo from camera.');
+      showAlert('Error', 'Could not capture photo from camera.');
     }
   };
 
   const handleConfirm = async () => {
     if (!photoAsset) {
-      Alert.alert(
+      showAlert(
         'Resolution Photo Required',
         'You must capture or upload a verification photo before marking this complaint as resolved.'
       );
@@ -86,7 +87,7 @@ export default function ResolveModal({
       setPhotoAsset(null);
       onClose();
     } catch (err) {
-      Alert.alert('Resolution Failed', err.message || 'Unable to resolve complaint.');
+      showAlert('Resolution Failed', err.message || 'Unable to resolve complaint.');
     } finally {
       setIsSubmitting(false);
     }

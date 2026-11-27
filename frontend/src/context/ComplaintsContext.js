@@ -278,6 +278,7 @@ export const ComplaintsProvider = ({ children }) => {
       category: complaintData.category,
       locationType: complaintData.locationType,
       severity: complaintData.severity,
+      imageValidationToken: complaintData.imageValidationToken,
     });
     const response = await apiService.post('/complaints', formData, true);
     replaceComplaint(response.data);

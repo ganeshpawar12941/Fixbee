@@ -6,14 +6,15 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useComplaints } from '../context/ComplaintsContext';
+import { useFixbeeAlert } from '../context/FixbeeAlertContext';
 
 export default function ProfileScreen({ onBack, onReplayIntro, onOpenMyComplaints }) {
+  const showAlert = useFixbeeAlert();
   const { user, signOut } = useAuth();
   const { getStudentDashboardData } = useComplaints();
 
@@ -23,7 +24,7 @@ export default function ProfileScreen({ onBack, onReplayIntro, onOpenMyComplaint
   const monthlyUsage = studentDashboard?.monthlyUsage;
 
   const handleSignOut = () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out of FixBee?', [
+    showAlert('Sign Out', 'Are you sure you want to sign out of FixBee?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign Out', style: 'destructive', onPress: () => signOut() },
     ]);
@@ -126,7 +127,7 @@ export default function ProfileScreen({ onBack, onReplayIntro, onOpenMyComplaint
               <Text style={styles.ruleDesc}>
                 {monthlyUsage
                   ? `Students can submit up to ${monthlyUsage.limit} complaints each month. You have used ${monthlyUsage.submitted} of ${monthlyUsage.limit}.`
-                  : 'Students can submit up to 3 complaints each month.'}
+                  : 'Students can submit up to 10 complaints each month.'}
               </Text>
             </View>
           </View>

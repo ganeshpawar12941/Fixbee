@@ -39,6 +39,8 @@ const readResponse = async (response) => {
 const responseError = (payload, response) => {
   const error = new Error(payload?.message || `Request failed with status ${response.status}.`);
   error.status = response.status;
+  error.statusCode = payload?.statusCode || response.status;
+  error.errors = payload?.errors || [];
   return error;
 };
 

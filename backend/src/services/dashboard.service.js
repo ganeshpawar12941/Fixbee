@@ -3,7 +3,7 @@ import ApiError from "../utils/ApiError.js";
 import User from "../models/user.model.js";
 
 
-const MAX_MONTHLY_COMPLAINTS = 3;
+const MAX_MONTHLY_COMPLAINTS = 10;
 
 // Get Student Dashboard
 const getStudentDashboard = async (user) => {

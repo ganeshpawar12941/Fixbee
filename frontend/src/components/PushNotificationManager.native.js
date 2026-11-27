@@ -15,7 +15,10 @@ Notifications.setNotificationHandler({
   }),
 });
 
-export default function PushNotificationManager({ onNotificationResponse }) {
+export default function PushNotificationManager({
+  onNotificationReceived,
+  onNotificationResponse,
+}) {
   const { user, isLoading } = useAuth();
   const handledResponseIdentifier = useRef(null);
 
@@ -80,11 +83,16 @@ export default function PushNotificationManager({ onNotificationResponse }) {
       const identifier = response.notification.request.identifier;
       if (identifier && identifier === handledResponseIdentifier.current) return;
       handledResponseIdentifier.current = identifier;
-      onNotificationResponse?.();
+      onNotificationResponse?.(
+        response.notification.request.content.data
+      );
       Notifications.clearLastNotificationResponse();
     };
 
     const responseListener = Notifications.addNotificationResponseReceivedListener(handleResponse);
+    const receivedListener = Notifications.addNotificationReceivedListener(() => {
+      onNotificationReceived?.();
+    });
     Notifications.getLastNotificationResponseAsync()
       .then((response) => {
         if (response) handleResponse(response);
@@ -93,8 +101,11 @@ export default function PushNotificationManager({ onNotificationResponse }) {
         console.error('Failed to read the notification that launched the app.', error);
       });
 
-    return () => responseListener.remove();
-  }, [onNotificationResponse]);
+    return () => {
+      responseListener.remove();
+      receivedListener.remove();
+    };
+  }, [onNotificationReceived, onNotificationResponse]);
 
   return null;
 }

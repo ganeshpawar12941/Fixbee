@@ -17,6 +17,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { ComplaintsProvider, useComplaints } from './src/context/ComplaintsContext';
+import { FixbeeAlertProvider } from './src/context/FixbeeAlertContext';
 import { Colors } from './src/theme/colors';
 import IntroScreen from './src/screens/IntroScreen';
 import GoogleAuthScreen from './src/screens/GoogleAuthScreen';
@@ -32,7 +33,7 @@ import PushNotificationManager from './src/components/PushNotificationManager';
 
 function MainApp() {
   const { user, isAuthenticated, isLoading, hasSeenIntro } = useAuth();
-  const { toggleLike } = useComplaints();
+  const { toggleLike, refreshLocalData } = useComplaints();
   const insets = useSafeAreaInsets();
 
   const [currentTab, setCurrentTab] = useState('home'); // 'home' | 'center' | 'profile'
@@ -43,10 +44,21 @@ function MainApp() {
   const [complaintToEdit, setComplaintToEdit] = useState(null);
   const [navigationHistory, setNavigationHistory] = useState([]);
   const [returnToMyComplaints, setReturnToMyComplaints] = useState(false);
-  const handleNotificationResponse = useCallback(() => {
+  const handleNotificationResponse = useCallback(async () => {
+    try {
+      await refreshLocalData();
+    } catch (error) {
+      console.error('Could not refresh Fixbee data after opening a push notification.', error);
+    }
     setCurrentTab('home');
     setShowNotificationsModal(true);
-  }, []);
+  }, [refreshLocalData]);
+
+  const handleNotificationReceived = useCallback(() => {
+    void refreshLocalData().catch((error) => {
+      console.error('Could not refresh Fixbee data after receiving a push notification.', error);
+    });
+  }, [refreshLocalData]);
 
   const isStudent = user?.role === 'student';
   const isDean = user?.role === 'infrastructure_dean';
@@ -191,7 +203,10 @@ function MainApp() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight : 0 }]}>
-      <PushNotificationManager onNotificationResponse={handleNotificationResponse} />
+      <PushNotificationManager
+        onNotificationReceived={handleNotificationReceived}
+        onNotificationResponse={handleNotificationResponse}
+      />
       <View style={styles.phoneContainer}>
         {/* Screen Content */}
         <View style={styles.screenContainer}>
@@ -371,7 +386,9 @@ export default function App() {
     <SafeAreaProvider>
       <AuthProvider>
         <ComplaintsProvider>
-          <MainApp />
+          <FixbeeAlertProvider>
+            <MainApp />
+          </FixbeeAlertProvider>
         </ComplaintsProvider>
       </AuthProvider>
     </SafeAreaProvider>

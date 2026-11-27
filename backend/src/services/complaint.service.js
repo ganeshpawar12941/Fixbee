@@ -3,7 +3,10 @@ import ApiError from "../utils/ApiError.js";
 import User from "../models/user.model.js";
 import fs from "fs/promises";
 import { uploadImage } from "./cloudinary.services.js";
-import { validateComplaintImage } from "./ai.service.js";
+import {
+    isComplaintImageValidationTokenValid,
+    validateComplaintImage,
+} from "./ai.service.js";
 import { createNotificationSafely } from "./notification.service.js";
 import { sendEmailSafely } from "./email.service.js";
 
@@ -13,10 +16,10 @@ const MANAGEMENT_ROLES = [
     "admin",
 ];
 
-const MAX_INVALID_STRIKES = 4;
+const MAX_INVALID_STRIKES = 10;
 const BLOCK_DURATION_DAYS = 7;
 
-const MAX_MONTHLY_COMPLAINTS = 3;
+const MAX_MONTHLY_COMPLAINTS = 10;
 
 const sendUserEmailInBackground = (userId, createEmail, action) => {
     void User.findById(userId)
@@ -61,7 +64,7 @@ export const ensureMonthlyComplaintLimit = async (userId) => {
         await createNotificationSafely({
             recipient: userId,
             title: "Monthly Complaint Limit Reached",
-            message: "You have reached the maximum limit of 3 complaints this month. You can submit new complaints from the 1st of next month.",
+            message: "You have reached the maximum limit of 10 complaints this month. You can submit new complaints from the 1st of next month.",
             type: "monthly_limit_reached",
         });
 
@@ -76,7 +79,7 @@ export const ensureMonthlyComplaintLimit = async (userId) => {
 
             <p>Hello ${student.name},</p>
 
-            <p>You have reached the maximum limit of 3 complaints for this month.</p>
+            <p>You have reached the maximum limit of 10 complaints for this month.</p>
 
             <p>You can submit new complaints from:</p>
 
@@ -91,7 +94,7 @@ export const ensureMonthlyComplaintLimit = async (userId) => {
         }
         throw new ApiError(
             403,
-            "You have reached the maximum limit of 3 complaints this month. You can submit new complaints next month."
+            "You have reached the maximum limit of 10 complaints this month. You can submit new complaints next month."
         );
     }
 
@@ -144,7 +147,7 @@ export const recordInvalidImageStrike = async (userId) => {
 
     const strikes = user.invalidImageStrikes;
 
-    // Fourth invalid attempt: block for 7 days
+    // Maximum invalid attempt: block for 7 days
     if (strikes >= MAX_INVALID_STRIKES) {
         const blockedUntil = new Date(
             Date.now() + BLOCK_DURATION_DAYS * 24 * 60 * 60 * 1000
@@ -157,7 +160,7 @@ export const recordInvalidImageStrike = async (userId) => {
         await createNotificationSafely({
             recipient: userId,
             title: "Complaint Submission Blocked",
-            message: `You have submitted 4 invalid images. Your complaint submissions are blocked for 7 days, until ${blockedUntil.toLocaleString("en-IN")}.`,
+            message: `You have submitted 10 invalid images. Your complaint submissions are blocked for 7 days, until ${blockedUntil.toLocaleString("en-IN")}.`,
             type: "complaint_blocked",
         });
 
@@ -168,7 +171,7 @@ export const recordInvalidImageStrike = async (userId) => {
             html: `
                 <h2>Complaint Submission Blocked</h2>
                 <p>Hello ${user.name},</p>
-                <p>You have submitted 4 invalid images on Fixbee.</p>
+                <p>You have submitted 10 invalid images on Fixbee.</p>
                 <p>Your complaint submissions have been blocked for 7 days.</p>
                 <p><strong>Block expires:</strong> ${blockedUntil.toLocaleString("en-IN")}</p>
                 <p>Please ensure your future uploads clearly show campus maintenance or cleanliness issues.</p>
@@ -184,24 +187,24 @@ export const recordInvalidImageStrike = async (userId) => {
         };
     }
 
-    // First, second and third invalid attempts
+    // Invalid attempts before the blocking threshold
     await createNotificationSafely({
         recipient: userId,
-        title: strikes === 3 ? "Final Warning" : "Invalid Image Warning",
-        message: `Your uploaded image was not valid for a campus maintenance or cleanliness complaint. This is warning ${strikes}/4. After 4 invalid image attempts, complaint submissions will be blocked for 7 days.`,
+        title: strikes === MAX_INVALID_STRIKES - 1 ? "Final Warning" : "Invalid Image Warning",
+        message: `Your uploaded image was not valid for a campus maintenance or cleanliness complaint. This is warning ${strikes}/10. After 10 invalid image attempts, complaint submissions will be blocked for 7 days.`,
         type: "invalid_image_warning",
     });
 
     // Send warning email
     await sendEmailSafely({
         to: user.email,
-        subject: `Fixbee - Invalid Image Warning ${strikes}/4`,
+        subject: `Fixbee - Invalid Image Warning ${strikes}/10`,
         html: `
-            <h2>${strikes === 3 ? "Final Warning" : "Invalid Image Warning"}</h2>
+            <h2>${strikes === MAX_INVALID_STRIKES - 1 ? "Final Warning" : "Invalid Image Warning"}</h2>
             <p>Hello ${user.name},</p>
             <p>Your uploaded image was not valid for a campus maintenance or cleanliness complaint.</p>
-            <p><strong>Warning: ${strikes}/4</strong></p>
-            <p>After 4 invalid image attempts, your complaint submissions will be blocked for 7 days.</p>
+            <p><strong>Warning: ${strikes}/10</strong></p>
+            <p>After 10 invalid image attempts, your complaint submissions will be blocked for 7 days.</p>
             <p>Please upload genuine images showing campus maintenance or cleanliness issues.</p>
             <br/>
             <p>Regards,<br/>Fixbee Team</p>
@@ -276,8 +279,51 @@ const createComplaint = async (data, file, user) => {
         await ensureMonthlyComplaintLimit(user.id);
 
 
-        // 1. Validate image using Gemini
-        const aiResult = await validateComplaintImage(file);
+        const {
+            title,
+            description,
+            category,
+            locationType,
+            severity
+        } = data;
+
+        if (!["boys_hostel", "girls_hostel", "campus"].includes(locationType)) {
+            throw new ApiError(400, "Invalid complaint location");
+        }
+
+        const assignedManagementQuery = locationType === "boys_hostel"
+            ? User.findOne({
+                role: "warden",
+                wardenType: "boys_hostel",
+                isActive: true,
+            })
+            : locationType === "girls_hostel"
+                ? User.findOne({
+                    role: "warden",
+                    wardenType: "girls_hostel",
+                    isActive: true,
+                })
+                : User.findOne({
+                    role: "infrastructure_dean",
+                    isActive: true,
+                });
+
+        // Run independent work together while preserving image validation.
+        const validationPromise = (async () => {
+            const alreadyValidated = await isComplaintImageValidationTokenValid(
+                file,
+                user.id,
+                data.imageValidationToken
+            );
+            return alreadyValidated
+                ? { status: "valid" }
+                : validateComplaintImage(file);
+        })();
+
+        const [aiResult, assignedManagement] = await Promise.all([
+            validationPromise,
+            assignedManagementQuery,
+        ]);
 
         if (aiResult.status === "invalid") {
             const strikeResult = await recordInvalidImageStrike(user.id);
@@ -285,13 +331,13 @@ const createComplaint = async (data, file, user) => {
             if (strikeResult.blocked) {
                 throw new ApiError(
                     403,
-                    `You have submitted 4 invalid images. Your complaint submissions are blocked for 7 days, until ${strikeResult.blockedUntil.toLocaleString("en-IN")}.`
+                    `You have submitted 10 invalid images. Your complaint submissions are blocked for 7 days, until ${strikeResult.blockedUntil.toLocaleString("en-IN")}.`
                 );
             }
 
             throw new ApiError(
                 400,
-                `${aiResult.reason || "Invalid complaint image"}. Warning: ${strikeResult.strikes}/4 invalid image attempts.`
+                `${aiResult.reason || "Invalid complaint image"}. Warning: ${strikeResult.strikes}/10 invalid image attempts.`
             );
         }
 
@@ -304,43 +350,6 @@ const createComplaint = async (data, file, user) => {
 
         if (aiResult.status !== "valid") {
             throw new ApiError(503, "Image validation failed");
-        }
-
-        // 2. Extract complaint details
-        const {
-            title,
-            description,
-            category,
-            locationType,
-            severity
-        } = data;
-
-
-
-        if (!["boys_hostel", "girls_hostel", "campus"].includes(locationType)) {
-            throw new ApiError(400, "Invalid complaint location");
-        }
-
-        // 3. Find assigned management
-        let assignedManagement;
-
-        if (locationType === "boys_hostel") {
-            assignedManagement = await User.findOne({
-                role: "warden",
-                wardenType: "boys_hostel",
-                isActive: true,
-            });
-        } else if (locationType === "girls_hostel") {
-            assignedManagement = await User.findOne({
-                role: "warden",
-                wardenType: "girls_hostel",
-                isActive: true,
-            });
-        } else {
-            assignedManagement = await User.findOne({
-                role: "infrastructure_dean",
-                isActive: true,
-            });
         }
 
         if (!assignedManagement) {
@@ -379,27 +388,25 @@ const createComplaint = async (data, file, user) => {
             ],
         });
 
-        // Notify student
-        await createNotificationSafely({
-            recipient: user.id,
-            title: "Complaint Submitted",
-            message: `Your complaint "${complaint.title}" has been submitted successfully.`,
-            type: "complaint_submitted",
-            relatedComplaint: complaint._id,
-        });
+        // Save both in-app notifications together; email delivery is non-blocking.
+        await Promise.all([
+            createNotificationSafely({
+                recipient: user.id,
+                title: "Complaint Submitted",
+                message: `Your complaint "${complaint.title}" has been submitted successfully.`,
+                type: "complaint_submitted",
+                relatedComplaint: complaint._id,
+            }),
+            createNotificationSafely({
+                recipient: assignedManagement._id,
+                title: "New Complaint Assigned",
+                message: `A new ${complaint.category} complaint "${complaint.title}" has been assigned to you.`,
+                type: "complaint_submitted",
+                relatedComplaint: complaint._id,
+            }),
+        ]);
 
-        // Notify assigned management
-        await createNotificationSafely({
-            recipient: assignedManagement._id,
-            title: "New Complaint Assigned",
-            message: `A new ${complaint.category} complaint "${complaint.title}" has been assigned to you.`,
-            type: "complaint_submitted",
-            relatedComplaint: complaint._id,
-        });
-
-
-        // Send confirmation email to student
-        await sendEmailSafely({
+        void sendEmailSafely({
             to: user.email,
             subject: "Fixbee - Complaint Submitted Successfully",
             html: `
@@ -419,8 +426,7 @@ const createComplaint = async (data, file, user) => {
     `,
         });
 
-        // Send new complaint email to assigned management
-        await sendEmailSafely({
+        void sendEmailSafely({
             to: assignedManagement.email,
             subject: "Fixbee - New Complaint Assigned",
             html: `

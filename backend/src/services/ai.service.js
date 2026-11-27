@@ -1,5 +1,46 @@
 import fs from "fs/promises";
+import { createHash } from "node:crypto";
+import jwt from "jsonwebtoken";
 import env from "../config/env.js";
+
+const createComplaintImageValidationToken = (imageBuffer, userId) => {
+    if (!env.jwtAccessSecret) return null;
+
+    const imageDigest = createHash("sha256").update(imageBuffer).digest("hex");
+    return jwt.sign(
+        { sub: String(userId), imageDigest },
+        env.jwtAccessSecret,
+        { algorithm: "HS256", expiresIn: "15m" }
+    );
+};
+
+const isComplaintImageValidationTokenValid = async (file, userId, token) => {
+    if (!token || !env.jwtAccessSecret) return false;
+
+    let payload;
+    try {
+        payload = jwt.verify(token, env.jwtAccessSecret, {
+            algorithms: ["HS256"],
+        });
+    } catch (error) {
+        if (["JsonWebTokenError", "TokenExpiredError", "NotBeforeError"].includes(error.name)) {
+            return false;
+        }
+        throw error;
+    }
+
+    if (
+        typeof payload !== "object" ||
+        payload.sub !== String(userId) ||
+        typeof payload.imageDigest !== "string"
+    ) {
+        return false;
+    }
+
+    const imageBuffer = await fs.readFile(file.path);
+    const imageDigest = createHash("sha256").update(imageBuffer).digest("hex");
+    return payload.imageDigest === imageDigest;
+};
 
 // Validate complaint image using Google Gemini
 const validateComplaintImage = async (file) => {
@@ -173,7 +214,7 @@ Rules:
 };
 
 // Generate complaint details using Gemini
-const generateComplaintDetails = async (file, studentDescription) => {
+const generateComplaintDetails = async (file, studentDescription, userId) => {
     if (!file) {
         throw new Error("Complaint image is required");
     }
@@ -190,66 +231,16 @@ const generateComplaintDetails = async (file, studentDescription) => {
     const base64Image = imageBuffer.toString("base64");
     const mimeType = file.verifiedMimeType;
 
-const prompt = `
-You are an AI image validation assistant for Fixbee,
-a college campus maintenance and cleanliness management application.
+    const prompt = `
+STUDENT'S COMPLAINT DESCRIPTION:
 
-Your task is to determine whether the uploaded image
-shows a genuine campus maintenance, cleanliness,
-hygiene, infrastructure, or safety issue.
+${studentDescription}
 
-Fixbee accepts complaints from all campus areas, including:
-- Classrooms
-- Laboratories
-- Libraries
-- Boys and girls hostels
-- Bathrooms and washrooms
-- Corridors and staircases
-- Canteens
-- Gardens and outdoor areas
-- Parking areas
-- Other common campus spaces
+Use the student's description together with the uploaded image
+to understand and evaluate the complaint.
 
-VALID COMPLAINT EXAMPLES:
-
-1. Electrical:
-   Broken fans, damaged lights, exposed wires,
-   faulty switches.
-
-2. Plumbing:
-   Leaking taps, broken pipes, water leakage,
-   drainage problems.
-
-3. Civil:
-   Damaged walls, ceilings, floors, doors,
-   windows and infrastructure.
-
-4. Cleaning:
-   Dirty classrooms, unclean corridors,
-   dirty laboratories and common areas.
-
-5. Furniture:
-   Broken chairs, desks, benches and cupboards.
-
-6. Water Supply:
-   No water supply, low water pressure,
-   water availability problems.
-
-7. Washroom:
-   Dirty toilets, blocked toilets, broken flushes,
-   bathroom hygiene issues.
-
-8. Waste Management:
-   Overflowing dustbins, garbage accumulation,
-   improper waste disposal.
-
-9. Garden and Outdoor:
-   Overgrown grass, unmaintained gardens,
-   damaged pathways.
-
-10. Safety:
-    Exposed electrical wires, damaged railings,
-    and visible campus safety hazards.
+The description provides context about issues that may not
+be directly visible in a photograph.
 
 VALIDATION RULES:
 
@@ -269,26 +260,126 @@ VALIDATION RULES:
 
 Return exactly one JSON object:
 
-{
-    "status": "valid",
-    "reason": "Short explanation"
-}
+OUTPUT INSTRUCTIONS:
 
-OR
+Evaluate the uploaded image and the student's description together.
 
-{
-    "status": "invalid",
-    "reason": "Short explanation"
-}
-
-OR
+For a valid campus maintenance complaint, return:
 
 {
-    "status": "uncertain",
-    "reason": "Short explanation"
+  "status": "valid",
+  "reason": "Short explanation",
+  "title": "Clear complaint title",
+  "description": "Detailed complaint description",
+  "category": "plumbing",
+  "severity": "medium"
 }
 
-Return JSON only. No markdown.
+SUPPORTED COMPLAINT CATEGORIES:
+
+1. electrical
+   Fans, lights, switches, wiring, power-related infrastructure.
+
+2. plumbing
+   Leaking taps, pipes, water leakage, drainage and pipelines.
+
+3. civil
+   Damaged walls, ceilings, floors, doors, windows and buildings.
+
+4. cleaning
+   Dirty classrooms, laboratories, corridors and common areas.
+
+5. furniture
+   Broken chairs, desks, benches, cupboards and other furniture.
+
+6. water_supply
+   No water supply, low pressure and water availability problems.
+
+7. washroom
+   Dirty toilets, blocked toilets, broken flushes and washroom issues.
+
+8. waste_management
+   Overflowing dustbins, garbage accumulation and waste disposal.
+
+9. garden_outdoor
+   Overgrown grass, damaged pathways and garden maintenance.
+
+10. safety
+    Exposed wires, damaged railings and visible safety hazards.
+
+11. other
+    Any genuine campus maintenance or infrastructure complaint
+    that does not fit the above categories.
+
+SEVERITY:
+
+- low: Minor issue that does not require immediate attention.
+- medium: Issue requiring maintenance attention soon.
+- high: Serious issue involving safety, significant damage
+  or major disruption.
+
+IMPORTANT ACCEPTANCE RULES:
+
+1. Accept all genuine campus maintenance, infrastructure,
+   cleanliness, hygiene and safety complaints.
+
+2. Do not restrict complaints to the examples listed above.
+
+3. Accept complaints from classrooms, laboratories, hostels,
+   bathrooms, libraries, canteens, parking areas, gardens,
+   corridors and all other campus locations.
+
+4. Use the closest matching category. If no category matches,
+   use "other".
+
+5. Do not reject a complaint simply because the issue is not
+   visually obvious in the photograph.
+
+6. Issues such as no water supply, electricity interruptions,
+   bad smell or low water pressure may not be directly visible.
+   If the description provides a plausible campus maintenance
+   issue but the image cannot confirm it, return "uncertain".
+
+7. Return "invalid" only when the image is clearly unrelated
+   to campus maintenance, inappropriate or unsuitable.
+
+8. Return "mismatch" only when the image shows a maintenance
+   issue but clearly contradicts the student's description.
+
+9. Never invent damage or problems that are not supported
+   by the image or student's description.
+
+10. Generate a meaningful title and description for every
+   valid complaint.
+
+11. The title must be between 5 and 120 characters.
+    The description must be between 10 and 3000 characters.
+
+12. Category must exactly match one of the supported categories.
+    Severity must be low, medium or high.
+
+For an uncertain complaint, return:
+
+{
+  "status": "uncertain",
+  "reason": "Explanation"
+}
+
+For an image and description mismatch, return:
+
+{
+  "status": "mismatch",
+  "reason": "Explanation"
+}
+
+For an image that is clearly unrelated or unsuitable, return:
+
+{
+  "status": "invalid",
+  "reason": "Explanation"
+}
+
+Return valid JSON only. No Markdown or additional text.
 `;
 
     const response = await fetch(
@@ -359,6 +450,13 @@ Return JSON only. No markdown.
         };
     }
 
+    if (details.status === "invalid") {
+        return {
+            status: "invalid",
+            reason: details.reason,
+        };
+    }
+
     if (details.status !== "valid") {
         throw new Error("Invalid Gemini response format");
     }
@@ -414,10 +512,12 @@ Return JSON only. No markdown.
         description: details.description.trim(),
         category: details.category,
         severity: details.severity,
+        validationToken: createComplaintImageValidationToken(imageBuffer, userId),
     };
 };
 
 export {
     validateComplaintImage,
     generateComplaintDetails,
+    isComplaintImageValidationTokenValid,
 };

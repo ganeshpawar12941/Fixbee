@@ -6,14 +6,15 @@ import {
   Modal,
   ScrollView,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../theme/colors';
 import { useComplaints } from '../context/ComplaintsContext';
+import { useFixbeeAlert } from '../context/FixbeeAlertContext';
 
 export default function NotificationsModal({ visible, onClose, onSelectComplaint }) {
+  const showAlert = useFixbeeAlert();
   const insets = useSafeAreaInsets();
   const {
     notifications,
@@ -54,7 +55,7 @@ export default function NotificationsModal({ visible, onClose, onSelectComplaint
         }
       }
     } catch (error) {
-      Alert.alert('Unable to open notification', error.message || 'Please try again.');
+      showAlert('Unable to open notification', error.message || 'Please try again.');
     }
   };
 
@@ -62,7 +63,7 @@ export default function NotificationsModal({ visible, onClose, onSelectComplaint
     try {
       await markAllNotificationsRead();
     } catch (error) {
-      Alert.alert('Unable to update notifications', error.message || 'Please try again.');
+      showAlert('Unable to update notifications', error.message || 'Please try again.');
     }
   };
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   Image,
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -16,8 +15,10 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Categories, LocationTypes, SeverityLevels } from '../theme/colors';
 import { useComplaints } from '../context/ComplaintsContext';
+import { useFixbeeAlert } from '../context/FixbeeAlertContext';
 
 export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdit }) {
+  const showAlert = useFixbeeAlert();
   const { createComplaint, updateComplaint, generateAIDetails, getStudentDashboardData } = useComplaints();
   const isEditing = Boolean(complaintToEdit);
   const monthlyUsage = getStudentDashboardData().monthlyUsage;
@@ -34,6 +35,9 @@ export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdi
   const [locationType, setLocationType] = useState(complaintToEdit?.locationType || 'campus');
   const [severity, setSeverity] = useState(complaintToEdit?.severity || 'medium');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionNotice, setSubmissionNotice] = useState(null);
+  const [imageValidationToken, setImageValidationToken] = useState(null);
+  const submissionInProgress = useRef(false);
 
   useEffect(() => {
     setImageUri(complaintToEdit?.imageUrl || null);
@@ -43,6 +47,7 @@ export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdi
     setLocationType(complaintToEdit?.locationType || 'campus');
     setSeverity(complaintToEdit?.severity || 'medium');
     setQuickPrompt('');
+    setImageValidationToken(null);
   }, [complaintToEdit]);
 
   // Capture Image with Camera
@@ -50,7 +55,7 @@ export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdi
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Camera permission is required to photograph campus issues.');
+        showAlert('Permission Denied', 'Camera permission is required to photograph campus issues.');
         return;
       }
 
@@ -62,25 +67,28 @@ export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdi
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setImageUri(result.assets[0].uri);
+        setImageValidationToken(null);
+        setSubmissionNotice(null);
       }
     } catch {
-      Alert.alert('Error', 'Failed to capture photo');
+      showAlert('Error', 'Failed to capture photo');
     }
   };
 
   // AI Auto-Fill Trigger
   const handleAIGenerate = async () => {
     if (!isEditing && !imageUri) {
-      Alert.alert('Photo Required', 'Please attach an issue photo before using FixBee AI assist.');
+      showAlert('Photo Required', 'Please attach an issue photo before using FixBee AI assist.');
       return;
     }
 
     if (!quickPrompt.trim()) {
-      Alert.alert('Quick Clue Required', 'Please type a short clue (e.g., "water dripping from ceiling in Room 204") so AI can generate the report.');
+      showAlert('Quick Clue Required', 'Please type a short clue (e.g., "water dripping from ceiling in Room 204") so AI can generate the report.');
       return;
     }
 
     setIsGeneratingAI(true);
+    setSubmissionNotice(null);
     try {
       const result = await generateAIDetails(imageUri, quickPrompt);
       if (result.success && result.data) {
@@ -89,10 +97,15 @@ export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdi
         if (result.data.category) setCategory(result.data.category);
         if (result.data.locationType) setLocationType(result.data.locationType);
         if (result.data.severity) setSeverity(result.data.severity);
-        Alert.alert('AI Generated', 'Title, description, category, and severity populated automatically. Review and make any adjustments!');
+        setImageValidationToken(result.data.validationToken || null);
+        showAlert('AI Generated', 'Title, description, category, and severity populated automatically. Review and make any adjustments!');
       }
     } catch (err) {
-      Alert.alert('AI Notice', err.message || 'Unable to auto-generate details. Please fill manually.');
+      setSubmissionNotice({
+        title: err.status === 422 ? 'Image Needs a Clearer View' : 'AI Notice',
+        message: err.message || 'Unable to auto-generate details. Please fill manually.',
+      });
+      showAlert('AI Notice', err.message || 'Unable to auto-generate details. Please fill manually.');
     } finally {
       setIsGeneratingAI(false);
     }
@@ -100,8 +113,10 @@ export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdi
 
   // Form Validation & Submission
   const handleSubmit = async () => {
+    if (submissionInProgress.current) return;
+
     if (reachedMonthlyLimit) {
-      Alert.alert(
+      showAlert(
         'Monthly Limit Reached',
         `You have already submitted ${monthlyUsage.limit} complaints this month.`
       );
@@ -109,26 +124,28 @@ export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdi
     }
 
     if (!isEditing && !imageUri) {
-      Alert.alert('Photo Evidence Missing', 'A clear photograph of the defect is required to submit a complaint.');
+      showAlert('Photo Evidence Missing', 'A clear photograph of the defect is required to submit a complaint.');
       return;
     }
 
     if (title.trim().length < 5) {
-      Alert.alert('Title Too Short', 'Complaint title must be at least 5 characters long.');
+      showAlert('Title Too Short', 'Complaint title must be at least 5 characters long.');
       return;
     }
 
     if (title.trim().length > 120) {
-      Alert.alert('Title Too Long', 'Complaint title cannot exceed 120 characters.');
+      showAlert('Title Too Long', 'Complaint title cannot exceed 120 characters.');
       return;
     }
 
     if (description.trim().length < 10) {
-      Alert.alert('Description Too Short', 'Please provide a descriptive explanation (minimum 10 characters).');
+      showAlert('Description Too Short', 'Please provide a descriptive explanation (minimum 10 characters).');
       return;
     }
 
+    submissionInProgress.current = true;
     setIsSubmitting(true);
+    setSubmissionNotice(null);
     try {
       if (isEditing) {
         await updateComplaint(complaintToEdit._id || complaintToEdit.id, {
@@ -145,10 +162,11 @@ export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdi
           locationType,
           severity,
           imageUrl: imageUri,
+          imageValidationToken,
         });
       }
 
-      Alert.alert(
+      showAlert(
         isEditing ? 'Complaint Updated' : 'Complaint Submitted',
         isEditing
           ? 'Your complaint details have been updated.'
@@ -163,8 +181,17 @@ export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdi
         ]
       );
     } catch (err) {
-      Alert.alert('Submission Error', err.message || 'Failed to submit complaint.');
+      const message = err.message || 'Failed to submit complaint.';
+      setSubmissionNotice({
+        title: err.status === 422 ? 'Image Needs Review' : 'Submission Error',
+        message,
+      });
+      showAlert(
+        err.status === 422 ? 'Image Needs Review' : 'Submission Error',
+        message
+      );
     } finally {
+      submissionInProgress.current = false;
       setIsSubmitting(false);
     }
   };
@@ -190,6 +217,23 @@ export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdi
             </Text>
           </View>
         </View>
+
+        {submissionNotice && (
+          <View style={styles.noticeBanner} accessibilityRole="alert">
+            <Ionicons name="warning-outline" size={18} color="#F59E0B" />
+            <View style={styles.noticeContent}>
+              <Text style={styles.noticeTitle}>{submissionNotice.title}</Text>
+              <Text style={styles.noticeMessage}>{submissionNotice.message}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.noticeClose}
+              onPress={() => setSubmissionNotice(null)}
+              accessibilityLabel="Dismiss message"
+            >
+              <Ionicons name="close" size={16} color={Colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {!isEditing && (
           <View style={styles.quotaCard}>
@@ -263,7 +307,10 @@ export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdi
             activeOpacity={0.85}
           >
             {isGeneratingAI ? (
-              <ActivityIndicator size="small" color="#0A0A0C" />
+              <View style={styles.busyButtonContent}>
+                <ActivityIndicator size="small" color={Colors.primary} />
+                <Text style={styles.aiBusyText}>FixBee AI is drafting your report…</Text>
+              </View>
             ) : (
               <>
                 <Ionicons name="flash" size={15} color="#0A0A0C" />
@@ -417,7 +464,12 @@ export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdi
           activeOpacity={0.85}
         >
           {isSubmitting ? (
-            <ActivityIndicator size="small" color="#0A0A0C" />
+            <View style={styles.busyButtonContent}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <Text style={styles.submitBusyText}>
+                {isEditing ? 'FixBee is saving your updates…' : 'FixBee is sending your report…'}
+              </Text>
+            </View>
           ) : (
             <>
               <Text style={styles.submitButtonText}>
@@ -469,6 +521,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textMuted,
     marginTop: 2,
+  },
+  noticeBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: 'rgba(245, 158, 11, 0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.38)',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+  },
+  noticeContent: {
+    flex: 1,
+  },
+  noticeTitle: {
+    color: '#FBBF24',
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 3,
+  },
+  noticeMessage: {
+    color: Colors.textPrimary,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  noticeClose: {
+    padding: 2,
   },
   quotaCard: {
     flexDirection: 'row',
@@ -620,6 +700,18 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#0A0A0C',
   },
+  busyButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+  },
+  aiBusyText: {
+    flexShrink: 1,
+    color: Colors.textPrimary,
+    fontSize: 12,
+    fontWeight: '800',
+  },
   inputGroup: {
     marginBottom: 14,
   },
@@ -753,5 +845,11 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#0A0A0C',
     letterSpacing: -0.2,
+  },
+  submitBusyText: {
+    flexShrink: 1,
+    color: Colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '800',
   },
 });

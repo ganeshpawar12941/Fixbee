@@ -5,6 +5,7 @@ const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 // Send push notifications to a user's registered devices
 const sendPushNotification = async ({
     recipient,
+    notificationId,
     title,
     message,
     type,
@@ -25,6 +26,7 @@ const sendPushNotification = async ({
             priority: "high",
             channelId: "default",
             data: {
+                notificationId: notificationId?.toString() || null,
                 type,
                 relatedComplaint: relatedComplaint
                     ? relatedComplaint.toString()

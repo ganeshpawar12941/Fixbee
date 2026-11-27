@@ -77,6 +77,7 @@ export const createNotificationSafely = async (data) => {
         // Push delivery should not delay the saved in-app notification.
         void sendPushNotification({
             recipient: data.recipient,
+            notificationId: notification._id,
             title: data.title,
             message: data.message,
             type: data.type,
