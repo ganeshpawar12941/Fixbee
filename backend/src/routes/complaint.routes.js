@@ -70,6 +70,7 @@ router.get("/:id", getComplaintByIdController);
 router.patch(
   "/:id/resolve",
   upload.single("resolutionPhoto"),
+  verifyUploadedImage,
   resolveComplaintController
 );
 

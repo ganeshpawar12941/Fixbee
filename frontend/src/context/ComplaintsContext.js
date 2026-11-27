@@ -173,12 +173,10 @@ export const ComplaintsProvider = ({ children }) => {
     await Promise.all([loadFeed(), loadAccountData()]);
   };
 
-  const refreshAfterMutation = async (action) => {
-    try {
-      await refreshLocalData();
-    } catch (error) {
+  const refreshAfterMutation = (action) => {
+    void refreshLocalData().catch((error) => {
       console.error(`The ${action} succeeded, but refreshing server data failed.`, error);
-    }
+    });
   };
 
   useEffect(() => {
@@ -283,7 +281,7 @@ export const ComplaintsProvider = ({ children }) => {
     });
     const response = await apiService.post('/complaints', formData, true);
     replaceComplaint(response.data);
-    await refreshAfterMutation('complaint submission');
+    refreshAfterMutation('complaint submission');
     return response.data;
   };
 
@@ -298,29 +296,29 @@ export const ComplaintsProvider = ({ children }) => {
   const updateComplaint = async (complaintId, changes) => {
     const response = await apiService.patch(`/complaints/${complaintId}`, changes);
     replaceComplaint(response.data);
-    await refreshAfterMutation('complaint update');
+    refreshAfterMutation('complaint update');
     return true;
   };
 
   const addAdditionalInfo = async (complaintId, message) => {
     const response = await apiService.post(`/complaints/${complaintId}/additional-info`, { message });
     replaceComplaint(response.data);
-    await refreshAfterMutation('additional information submission');
+    refreshAfterMutation('additional information submission');
     return response.data.additionalInfo?.[response.data.additionalInfo.length - 1] || null;
   };
 
   const updateComplaintStatus = async (complaintId, status) => {
     const response = await apiService.patch(`/complaints/${complaintId}/status`, { status });
     replaceComplaint(response.data);
-    await refreshAfterMutation('status update');
+    refreshAfterMutation('status update');
     return response.data;
   };
 
-  const resolveComplaint = async (complaintId, resolutionPhotoUri) => {
-    const formData = await createImageFormData(resolutionPhotoUri, 'resolutionPhoto');
+  const resolveComplaint = async (complaintId, resolutionPhoto) => {
+    const formData = await createImageFormData(resolutionPhoto, 'resolutionPhoto');
     const response = await apiService.patch(`/complaints/${complaintId}/resolve`, formData, true);
     replaceComplaint(response.data);
-    await refreshAfterMutation('complaint resolution');
+    refreshAfterMutation('complaint resolution');
     return response.data;
   };
 
@@ -332,7 +330,7 @@ export const ComplaintsProvider = ({ children }) => {
     setFeedItems((current) => current.filter(
       (item) => String(getId(item)) !== String(complaintId)
     ));
-    await refreshAfterMutation('complaint withdrawal');
+    refreshAfterMutation('complaint withdrawal');
     return true;
   };
 

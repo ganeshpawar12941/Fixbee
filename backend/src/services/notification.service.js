@@ -74,14 +74,15 @@ export const createNotificationSafely = async (data) => {
         // First create the in-app notification
         const notification = await createNotification(data);
 
-        // Then send mobile push notification
-        // Push failures must not affect the main operation
-        await sendPushNotification({
+        // Push delivery should not delay the saved in-app notification.
+        void sendPushNotification({
             recipient: data.recipient,
             title: data.title,
             message: data.message,
             type: data.type,
             relatedComplaint: data.relatedComplaint || null,
+        }).catch((error) => {
+            console.error("Push notification dispatch failed:", error.message);
         });
 
         return notification;

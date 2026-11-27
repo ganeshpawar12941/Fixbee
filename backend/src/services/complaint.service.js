@@ -18,6 +18,14 @@ const BLOCK_DURATION_DAYS = 7;
 
 const MAX_MONTHLY_COMPLAINTS = 3;
 
+const sendUserEmailInBackground = (userId, createEmail, action) => {
+    void User.findById(userId)
+        .then((recipient) => recipient ? sendEmailSafely(createEmail(recipient)) : null)
+        .catch((error) => {
+            console.error(`Failed to prepare ${action} email:`, error.message);
+        });
+};
+
 
 // Check monthly complaint submission limit
 export const ensureMonthlyComplaintLimit = async (userId) => {
@@ -820,10 +828,7 @@ const addAdditionalInfo = async (
 
     // Send email to the opposite party
     if (recipient) {
-        const recipientUser = await User.findById(recipient);
-
-        if (recipientUser) {
-            await sendEmailSafely({
+        sendUserEmailInBackground(recipient, (recipientUser) => ({
                 to: recipientUser.email,
                 subject: `Fixbee - ${notificationTitle}`,
                 html: `
@@ -843,8 +848,7 @@ const addAdditionalInfo = async (
                 <br/>
                 <p>Regards,<br/>Fixbee Team</p>
             `,
-            });
-        }
+        }), "additional information");
     }
 
     return complaint;
@@ -962,10 +966,7 @@ export const updateComplaintStatus = async (complaintId, newStatus, user) => {
 
 
     // 10. Send status update email to student
-    const student = await User.findById(complaint.student);
-
-    if (student) {
-        await sendEmailSafely({
+    sendUserEmailInBackground(complaint.student, (student) => ({
             to: student.email,
             subject: `Fixbee - Complaint ${formattedStatus}`,
             html: `
@@ -986,8 +987,7 @@ export const updateComplaintStatus = async (complaintId, newStatus, user) => {
             <br/>
             <p>Regards,<br/>Fixbee Team</p>
         `,
-        });
-    }
+    }), "complaint status");
 
     return complaint;
 };
@@ -1089,10 +1089,7 @@ export const resolveComplaint = async (
         });
 
         // Send resolution email to student
-        const student = await User.findById(complaint.student);
-
-        if (student) {
-            await sendEmailSafely({
+        sendUserEmailInBackground(complaint.student, (student) => ({
                 to: student.email,
                 subject: "Fixbee - Your Complaint Has Been Resolved",
                 html: `
@@ -1121,8 +1118,7 @@ export const resolveComplaint = async (
             <br/>
             <p>Regards,<br/>Fixbee Team</p>
         `,
-            });
-        }
+        }), "complaint resolution");
 
         return complaint;
     } finally {

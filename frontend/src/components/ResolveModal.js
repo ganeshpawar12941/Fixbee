@@ -19,7 +19,7 @@ export default function ResolveModal({
   onClose,
   onConfirmResolve,
 }) {
-  const [photoUri, setPhotoUri] = useState(null);
+  const [photoAsset, setPhotoAsset] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!complaint) return null;
@@ -37,10 +37,11 @@ export default function ResolveModal({
         allowsEditing: true,
         quality: 0.85,
         aspect: [4, 3],
+        preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setPhotoUri(result.assets[0].uri);
+        setPhotoAsset(result.assets[0]);
       }
     } catch {
       Alert.alert('Error', 'Could not select image from gallery.');
@@ -59,10 +60,11 @@ export default function ResolveModal({
         allowsEditing: true,
         quality: 0.85,
         aspect: [4, 3],
+        preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setPhotoUri(result.assets[0].uri);
+        setPhotoAsset(result.assets[0]);
       }
     } catch {
       Alert.alert('Error', 'Could not capture photo from camera.');
@@ -70,7 +72,7 @@ export default function ResolveModal({
   };
 
   const handleConfirm = async () => {
-    if (!photoUri) {
+    if (!photoAsset) {
       Alert.alert(
         'Resolution Photo Required',
         'You must capture or upload a verification photo before marking this complaint as resolved.'
@@ -80,8 +82,8 @@ export default function ResolveModal({
 
     setIsSubmitting(true);
     try {
-      await onConfirmResolve(complaint._id || complaint.id, photoUri);
-      setPhotoUri(null);
+      await onConfirmResolve(complaint._id || complaint.id, photoAsset);
+      setPhotoAsset(null);
       onClose();
     } catch (err) {
       Alert.alert('Resolution Failed', err.message || 'Unable to resolve complaint.');
@@ -91,7 +93,7 @@ export default function ResolveModal({
   };
 
   const handleClose = () => {
-    setPhotoUri(null);
+    setPhotoAsset(null);
     onClose();
   };
 
@@ -130,9 +132,9 @@ export default function ResolveModal({
           </View>
 
           {/* Photo Picker / Live Preview */}
-          {photoUri ? (
+          {photoAsset ? (
             <View style={styles.previewWrapper}>
-              <Image source={{ uri: photoUri }} style={styles.previewImg} resizeMode="cover" />
+              <Image source={{ uri: photoAsset.uri }} style={styles.previewImg} resizeMode="cover" />
               <TouchableOpacity
                 style={styles.retakeBtn}
                 onPress={pickFromGallery}
@@ -162,10 +164,10 @@ export default function ResolveModal({
           <TouchableOpacity
             style={[
               styles.confirmBtn,
-              (!photoUri || isSubmitting) && styles.confirmBtnDisabled,
+              (!photoAsset || isSubmitting) && styles.confirmBtnDisabled,
             ]}
             onPress={handleConfirm}
-            disabled={!photoUri || isSubmitting}
+            disabled={!photoAsset || isSubmitting}
             activeOpacity={0.85}
           >
             {isSubmitting ? (
@@ -175,15 +177,15 @@ export default function ResolveModal({
                 <Ionicons
                   name="checkmark-done"
                   size={16}
-                  color={photoUri ? '#0A0A0C' : Colors.textMuted}
+                  color={photoAsset ? '#0A0A0C' : Colors.textMuted}
                 />
                 <Text
                   style={[
                     styles.confirmBtnText,
-                    !photoUri && styles.confirmBtnTextDisabled,
+                    !photoAsset && styles.confirmBtnTextDisabled,
                   ]}
                 >
-                  {photoUri ? 'Confirm Resolution' : 'Photo Required to Resolve'}
+                  {photoAsset ? 'Confirm Resolution' : 'Photo Required to Resolve'}
                 </Text>
               </>
             )}

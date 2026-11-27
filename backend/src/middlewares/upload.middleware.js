@@ -2,6 +2,7 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import { fileTypeFromFile } from "file-type";
+import ApiError from "../utils/ApiError.js";
 
 const uploadDirectory = path.resolve("uploads");
 
@@ -39,7 +40,7 @@ const storage = multer.diskStorage({
 const fileFilter = (req, file, cb) => {
     if (!allowedMimeTypes.includes(file.mimetype)) {
         return cb(
-            new Error("Only JPEG, PNG, and WebP images are allowed")
+            new ApiError(400, "Only JPEG, PNG, and WebP images are allowed")
         );
     }
 
@@ -80,6 +81,13 @@ export const verifyUploadedImage = async (req, res, next) => {
         req.file.verifiedMimeType = detectedType.mime;
         req.file.verifiedExtension =
             allowedExtensions[detectedType.mime];
+        const verifiedPath = path.join(
+            uploadDirectory,
+            `${path.parse(req.file.filename).name}${req.file.verifiedExtension}`
+        );
+        await fs.promises.rename(req.file.path, verifiedPath);
+        req.file.path = verifiedPath;
+        req.file.filename = path.basename(verifiedPath);
 
         next();
     } catch (error) {

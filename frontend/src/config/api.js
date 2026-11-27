@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { File } from 'expo-file-system';
 import { Platform } from 'react-native';
 
 const TOKEN_KEY = '@fixbee_token';
@@ -46,10 +47,20 @@ const getImageType = (uri, assetType) => {
   const extension = uri.split('?')[0].split('.').pop()?.toLowerCase();
   if (extension === 'png') return 'image/png';
   if (extension === 'webp') return 'image/webp';
+  if (extension === 'heic' || extension === 'heif') return 'image/heic';
   return 'image/jpeg';
 };
 
-export const createImageFormData = async (uri, fieldName, fields = {}) => {
+const imageExtensionByType = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/heic': 'heic',
+  'image/heif': 'heif',
+};
+
+export const createImageFormData = async (image, fieldName, fields = {}) => {
+  const uri = typeof image === 'string' ? image : image?.uri;
   if (!uri) throw new Error('An image is required.');
 
   const formData = new FormData();
@@ -57,16 +68,18 @@ export const createImageFormData = async (uri, fieldName, fields = {}) => {
     if (value !== undefined && value !== null) formData.append(key, String(value));
   });
 
-  const fileName = uri.split('/').pop()?.split('?')[0] || `image-${Date.now()}.jpg`;
-  const type = getImageType(uri);
+  const type = getImageType(uri, typeof image === 'object' ? image.mimeType : undefined);
+  const fileName = `image-${Date.now()}.${imageExtensionByType[type] || 'jpg'}`;
 
   if (Platform.OS === 'web') {
     const response = await fetch(uri);
     if (!response.ok) throw new Error('Unable to read the selected image.');
     const blob = await response.blob();
-    formData.append(fieldName, blob, fileName);
+    const blobType = blob.type || type;
+    const blobFileName = `image-${Date.now()}.${imageExtensionByType[blobType] || 'jpg'}`;
+    formData.append(fieldName, blob, blobFileName);
   } else {
-    formData.append(fieldName, { uri, name: fileName, type });
+    formData.append(fieldName, new File(uri), fileName);
   }
 
   return formData;
