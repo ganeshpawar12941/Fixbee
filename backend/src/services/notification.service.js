@@ -1,6 +1,61 @@
 import Notification from "../models/notification.model.js";
+import User from "../models/user.model.js";
 
-// Create a notification
+import ApiError from "../utils/ApiError.js";
+
+import sendPushNotification from "./pushNotification.service.js";
+
+// Validate Expo Push Token
+const isValidExpoPushToken = (token) => {
+    return (
+        typeof token === "string" &&
+        /^(Expo|Exponent)PushToken\[[^\]]+\]$/.test(token)
+    );
+};
+
+// Register Expo Push Token
+export const registerPushToken = async (userId, token) => {
+    if (!isValidExpoPushToken(token)) {
+        throw new ApiError(400, "Invalid Expo Push Token");
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    const alreadyRegistered = user.pushTokens.some(
+        (device) => device.token === token
+    );
+
+    if (!alreadyRegistered) {
+        user.pushTokens.push({ token });
+        await user.save();
+    }
+
+    return true;
+};
+
+// Remove Expo Push Token
+export const unregisterPushToken = async (userId, token) => {
+    if (!isValidExpoPushToken(token)) {
+        throw new ApiError(400, "Invalid Expo Push Token");
+    }
+
+    await User.updateOne(
+        { _id: userId },
+        {
+            $pull: {
+                pushTokens: { token },
+            },
+        }
+    );
+
+    return true;
+};
+
+// Create in-app notification
 export const createNotification = async (data) => {
     const notification = await Notification.create({
         recipient: data.recipient,
@@ -13,20 +68,39 @@ export const createNotification = async (data) => {
     return notification;
 };
 
-// Create notification without interrupting the main operation
+// Create notification safely and send push notification
 export const createNotificationSafely = async (data) => {
     try {
-        return await createNotification(data);
+        // First create the in-app notification
+        const notification = await createNotification(data);
+
+        // Then send mobile push notification
+        // Push failures must not affect the main operation
+        await sendPushNotification({
+            recipient: data.recipient,
+            title: data.title,
+            message: data.message,
+            type: data.type,
+            relatedComplaint: data.relatedComplaint || null,
+        });
+
+        return notification;
     } catch (error) {
-        console.error("Notification creation failed:", error.message);
+        console.error(
+            "Notification creation failed:",
+            error.message
+        );
+
         return null;
     }
 };
 
-import ApiError from "../utils/ApiError.js";
-
 // Get logged-in user's notifications
-export const getMyNotifications = async (userId, page = 1, limit = 20) => {
+export const getMyNotifications = async (
+    userId,
+    page = 1,
+    limit = 20
+) => {
     const skip = (page - 1) * limit;
 
     const [notifications, total, unreadCount] = await Promise.all([
@@ -56,7 +130,10 @@ export const getMyNotifications = async (userId, page = 1, limit = 20) => {
 };
 
 // Mark a particular notification as read
-export const markNotificationAsRead = async (notificationId, userId) => {
+export const markNotificationAsRead = async (
+    notificationId,
+    userId
+) => {
     const notification = await Notification.findOne({
         _id: notificationId,
         recipient: userId,

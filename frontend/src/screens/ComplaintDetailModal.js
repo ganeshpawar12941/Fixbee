@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -8,12 +8,11 @@ import {
   Image,
   TouchableOpacity,
   TextInput,
-  KeyboardAvoidingView,
-  Platform,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, StatusPills, Categories } from '../theme/colors';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Colors, StatusPills } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useComplaints } from '../context/ComplaintsContext';
 
@@ -23,10 +22,33 @@ export default function ComplaintDetailModal({
   onClose,
   onLike,
 }) {
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { addAdditionalInfo, complaints } = useComplaints();
-  const [commentText, setCommentText] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { complaints, addAdditionalInfo, getComplaintDetails } = useComplaints();
+  const [additionalInfoText, setAdditionalInfoText] = React.useState('');
+  const [savingInfo, setSavingInfo] = React.useState(false);
+  const complaintId = complaint?._id || complaint?.id;
+  const currentUserId = user?._id || user?.id;
+  const getId = (value) => (
+    value && typeof value === 'object' ? value._id || value.id : value
+  );
+  const canLoadDetails = user?.role === 'admin'
+    || (user?.role === 'student' && String(getId(complaint?.student)) === String(currentUserId))
+    || (['warden', 'infrastructure_dean'].includes(user?.role)
+      && String(getId(complaint?.assignedManagement)) === String(currentUserId));
+
+  useEffect(() => {
+    if (!visible || !complaintId || !canLoadDetails) return undefined;
+    let active = true;
+    getComplaintDetails(complaintId).catch((error) => {
+      if (active) {
+        Alert.alert('Unable to load complaint details', error.message || 'Please try again.');
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [visible, complaintId, canLoadDetails, getComplaintDetails]);
 
   if (!complaint) return null;
 
@@ -35,26 +57,6 @@ export default function ComplaintDetailModal({
     complaints.find((c) => (c._id || c.id) === (complaint._id || complaint.id)) || complaint;
 
   const statusInfo = StatusPills[currentComplaint.status] || StatusPills.submitted;
-  const categoryObj = Categories.find((c) => c.id === currentComplaint.category) || {
-    id: currentComplaint.category,
-    label: currentComplaint.category || 'General',
-    icon: 'cube-outline',
-    color: Colors.primary,
-  };
-
-  const handleAddComment = async () => {
-    if (!commentText.trim()) return;
-    setIsSubmitting(true);
-    try {
-      await addAdditionalInfo(currentComplaint._id || currentComplaint.id, commentText.trim());
-      setCommentText('');
-    } catch {
-      Alert.alert('Error', 'Unable to post comment. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const formatTime = (dateStr) => {
     if (!dateStr) return '';
     try {
@@ -62,19 +64,6 @@ export default function ComplaintDetailModal({
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' • ' + d.toLocaleDateString([], { month: 'short', day: 'numeric' });
     } catch {
       return '';
-    }
-  };
-
-  const getRoleBadgeStyle = (role) => {
-    switch (role) {
-      case 'warden':
-        return { label: 'Warden', color: Colors.primary, bg: 'rgba(255, 193, 7, 0.15)' };
-      case 'infrastructure_dean':
-        return { label: 'Dean Infra', color: Colors.primary, bg: 'rgba(255, 193, 7, 0.15)' };
-      case 'admin':
-        return { label: 'Admin', color: Colors.primary, bg: 'rgba(255, 193, 7, 0.15)' };
-      default:
-        return { label: 'Student', color: '#FFFFFF', bg: 'rgba(255, 255, 255, 0.1)' };
     }
   };
 
@@ -86,13 +75,28 @@ export default function ComplaintDetailModal({
       : 'Campus Grounds';
 
   const categoryLabel = (currentComplaint.category || 'General').replace('_', ' ').toUpperCase();
+  const isStudentOwner = user?.role === 'student' && getId(currentComplaint.student) === currentUserId;
+  const isAssignedManager = ['warden', 'infrastructure_dean'].includes(user?.role) &&
+    getId(currentComplaint.assignedManagement) === currentUserId;
+  const canAddInformation = isStudentOwner || isAssignedManager;
+  const additionalInfo = currentComplaint.additionalInfo || [];
+
+  const submitAdditionalInfo = async () => {
+    if (!additionalInfoText.trim() || savingInfo) return;
+    setSavingInfo(true);
+    try {
+      await addAdditionalInfo(currentComplaint._id || currentComplaint.id, additionalInfoText);
+      setAdditionalInfoText('');
+    } catch (error) {
+      Alert.alert('Unable to add information', error.message || 'Please try again.');
+    } finally {
+      setSavingInfo(false);
+    }
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        style={styles.modalContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <View style={[styles.modalContainer, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         {/* Clean Modal Header */}
         <View style={styles.topBar}>
           <TouchableOpacity onPress={onClose} style={styles.backButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
@@ -123,7 +127,11 @@ export default function ComplaintDetailModal({
           </TouchableOpacity>
         </View>
 
-        <ScrollView style={styles.scrollArea} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          style={styles.scrollArea}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* Flairs and Status Badges */}
           <View style={styles.flairsRow}>
             <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg, borderColor: `${statusInfo.color}50` }]}>
@@ -224,85 +232,55 @@ export default function ComplaintDetailModal({
             </View>
           </View>
 
-          {/* Reddit Comments & Additional Information Discussion Thread */}
-          <View style={styles.discussionSection}>
-            <View style={styles.sectionHeaderRow}>
-              <Ionicons name="chatbubbles" size={16} color={Colors.primary} />
-              <Text style={styles.sectionTitle}>
-                Discussion & Official Updates ({currentComplaint.additionalInfo?.length || 0})
-              </Text>
-            </View>
-
-            {currentComplaint.additionalInfo && currentComplaint.additionalInfo.length > 0 ? (
-              currentComplaint.additionalInfo.map((info, idx) => {
-                const roleBadge = getRoleBadgeStyle(info.senderRole);
-                return (
-                  <View key={info._id || idx} style={styles.commentItem}>
-                    <View style={styles.commentHeaderRow}>
-                      <View style={[styles.commentAvatar, { backgroundColor: `${roleBadge.color}25` }]}>
-                        <Text style={[styles.commentAvatarText, { color: roleBadge.color }]}>
-                          {(info.senderName || 'U').charAt(0).toUpperCase()}
-                        </Text>
-                      </View>
-
-                      <View style={styles.commentMeta}>
-                        <View style={styles.commentNameRow}>
-                          <Text style={styles.commentAuthorName}>
-                            {info.senderName || 'Campus User'}
-                          </Text>
-                          <View style={[styles.roleBadge, { backgroundColor: roleBadge.bg }]}>
-                            <Text style={[styles.roleBadgeText, { color: roleBadge.color }]}>
-                              {roleBadge.label}
-                            </Text>
-                          </View>
-                        </View>
-                        <Text style={styles.commentTime}>{formatTime(info.createdAt)}</Text>
-                      </View>
-                    </View>
-
-                    <Text style={styles.commentMessage}>{info.message}</Text>
-                  </View>
-                );
-              })
-            ) : (
-              <View style={styles.emptyCommentsCard}>
-                <Ionicons name="chatbox-outline" size={24} color={Colors.textMuted} />
-                <Text style={styles.emptyCommentsText}>
-                  No updates posted yet. Management and students can exchange information here.
-                </Text>
+          {(additionalInfo.length > 0 || canAddInformation) && (
+            <View style={styles.additionalInfoSection}>
+              <View style={styles.sectionHeaderRow}>
+                <Ionicons name="information-circle-outline" size={17} color={Colors.primary} />
+                <Text style={styles.sectionTitle}>Additional Information</Text>
               </View>
-            )}
-          </View>
+              <Text style={styles.additionalInfoHint}>
+                Official updates shared by the reporting student and assigned management.
+              </Text>
+              {additionalInfo.length > 0 ? additionalInfo.map((entry, index) => (
+                <View key={entry._id || `${entry.createdAt}-${index}`} style={styles.additionalInfoCard}>
+                  <View style={styles.additionalInfoHeader}>
+                    <Text style={styles.additionalInfoSender}>{entry.senderName || 'Campus user'}</Text>
+                    <Text style={styles.additionalInfoTime}>{formatTime(entry.createdAt)}</Text>
+                  </View>
+                  <Text style={styles.additionalInfoMessage}>{entry.message}</Text>
+                </View>
+              )) : (
+                <Text style={styles.noAdditionalInfo}>No additional information has been shared yet.</Text>
+              )}
+              {canAddInformation && (
+                <View style={styles.additionalInfoComposer}>
+                  <TextInput
+                    style={styles.additionalInfoInput}
+                    value={additionalInfoText}
+                    onChangeText={setAdditionalInfoText}
+                    placeholder="Add an official update..."
+                    placeholderTextColor={Colors.textMuted}
+                    multiline
+                    maxLength={500}
+                  />
+                  <TouchableOpacity
+                    style={[
+                      styles.additionalInfoSendButton,
+                      (!additionalInfoText.trim() || savingInfo) && styles.additionalInfoSendButtonDisabled,
+                    ]}
+                    onPress={submitAdditionalInfo}
+                    disabled={!additionalInfoText.trim() || savingInfo}
+                    activeOpacity={0.8}
+                    accessibilityLabel="Submit additional information"
+                  >
+                    <Ionicons name="send" size={16} color={Colors.textInverse} />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
         </ScrollView>
-
-        {/* Reddit-Style Comment Input Bar */}
-        <View style={styles.commentInputBar}>
-          <TextInput
-            style={styles.commentInput}
-            placeholder={`Add an update as ${user?.name?.split(' ')[0] || 'User'} (${user?.role || 'student'})...`}
-            placeholderTextColor={Colors.textMuted}
-            value={commentText}
-            onChangeText={setCommentText}
-            multiline
-            maxLength={1000}
-          />
-          <TouchableOpacity
-            style={[
-              styles.sendButton,
-              (!commentText.trim() || isSubmitting) && styles.sendButtonDisabled,
-            ]}
-            onPress={handleAddComment}
-            disabled={!commentText.trim() || isSubmitting}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name="send"
-              size={18}
-              color={commentText.trim() && !isSubmitting ? '#0A0A0C' : Colors.textMuted}
-            />
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
@@ -495,6 +473,84 @@ const styles = StyleSheet.create({
   timelineList: {
     paddingLeft: 4,
   },
+  additionalInfoSection: {
+    backgroundColor: Colors.bgCard,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.borderSubtle,
+    padding: 14,
+    marginBottom: 18,
+  },
+  additionalInfoHint: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: -5,
+    marginBottom: 10,
+  },
+  additionalInfoCard: {
+    backgroundColor: Colors.bgCardElevated,
+    borderRadius: 9,
+    padding: 10,
+    marginBottom: 8,
+  },
+  additionalInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 5,
+  },
+  additionalInfoSender: {
+    flex: 1,
+    color: Colors.textPrimary,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  additionalInfoTime: {
+    color: Colors.textMuted,
+    fontSize: 9,
+  },
+  additionalInfoMessage: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  noAdditionalInfo: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    marginBottom: 10,
+  },
+  additionalInfoComposer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    marginTop: 6,
+  },
+  additionalInfoInput: {
+    flex: 1,
+    minHeight: 42,
+    maxHeight: 100,
+    color: Colors.textPrimary,
+    backgroundColor: Colors.bgCardElevated,
+    borderColor: Colors.borderSubtle,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    fontSize: 12,
+  },
+  additionalInfoSendButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+  },
+  additionalInfoSendButtonDisabled: {
+    opacity: 0.45,
+  },
   timelineStep: {
     flexDirection: 'row',
     marginBottom: 12,
@@ -545,115 +601,5 @@ const styles = StyleSheet.create({
   noHistoryText: {
     fontSize: 12,
     color: Colors.textMuted,
-  },
-  discussionSection: {
-    backgroundColor: Colors.bgCard,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    padding: 14,
-    marginBottom: 16,
-  },
-  commentItem: {
-    backgroundColor: '#16161E',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#242430',
-    padding: 10,
-    marginBottom: 10,
-  },
-  commentHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  commentAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-  commentAvatarText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  commentMeta: {
-    flex: 1,
-  },
-  commentNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  commentAuthorName: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  roleBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  roleBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-  },
-  commentTime: {
-    fontSize: 9,
-    color: Colors.textMuted,
-    marginTop: 1,
-  },
-  commentMessage: {
-    fontSize: 12,
-    color: '#E4E4E7',
-    lineHeight: 18,
-  },
-  emptyCommentsCard: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 20,
-    gap: 8,
-  },
-  emptyCommentsText: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 16,
-  },
-  commentInputBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: Colors.bgCardElevated,
-    borderTopWidth: 1,
-    borderTopColor: Colors.borderSubtle,
-    gap: 8,
-  },
-  commentInput: {
-    flex: 1,
-    backgroundColor: Colors.bgInput,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    fontSize: 13,
-    color: Colors.textPrimary,
-    maxHeight: 80,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-  },
-  sendButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sendButtonDisabled: {
-    backgroundColor: '#262632',
   },
 });

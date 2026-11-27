@@ -56,18 +56,30 @@ const userSchema = new mongoose.Schema(
             select: false,
         },
 
-        // Number of confirmed invalid-image attempts
         invalidImageStrikes: {
             type: Number,
             default: 0,
             min: 0,
         },
 
-        // Date until which complaint submissions are blocked
         complaintBlockedUntil: {
             type: Date,
             default: null,
         },
+
+        // Expo push notification tokens
+        pushTokens: [
+            {
+                token: {
+                    type: String,
+                    required: true,
+                },
+                createdAt: {
+                    type: Date,
+                    default: Date.now,
+                },
+            },
+        ],
     },
     {
         timestamps: true,
@@ -77,4 +89,3 @@ const userSchema = new mongoose.Schema(
 const User = mongoose.model("User", userSchema);
 
 export default User;
-

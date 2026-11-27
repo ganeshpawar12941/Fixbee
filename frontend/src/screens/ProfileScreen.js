@@ -10,20 +10,17 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
-import { useAuth, PRESET_USERS } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { useComplaints } from '../context/ComplaintsContext';
 
 export default function ProfileScreen({ onBack, onReplayIntro, onOpenMyComplaints }) {
-  const { user, switchRole, signOut } = useAuth();
-  const { backendStatus, getStudentDashboardData } = useComplaints();
+  const { user, signOut } = useAuth();
+  const { getStudentDashboardData } = useComplaints();
 
   const isStudent = user?.role === 'student';
-  const studentStats = isStudent ? getStudentDashboardData()?.statistics : null;
-
-  const handleRoleSelect = (targetRole) => {
-    switchRole(targetRole);
-    Alert.alert('Role Switched', `Active session changed to ${targetRole.replace('_', ' ').toUpperCase()}. Navigation tabs and permissions updated accordingly.`);
-  };
+  const studentDashboard = isStudent ? getStudentDashboardData() : null;
+  const studentStats = studentDashboard?.statistics;
+  const monthlyUsage = studentDashboard?.monthlyUsage;
 
   const handleSignOut = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out of FixBee?', [
@@ -62,7 +59,7 @@ export default function ProfileScreen({ onBack, onReplayIntro, onOpenMyComplaint
       <View style={styles.userHeroCard}>
         <View style={styles.avatarWrapper}>
           <Image
-            source={{ uri: user?.profilePicture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150' }}
+            source={user?.profilePicture ? { uri: user.profilePicture } : require('../../assets/fixbee_bee_logo.png')}
             style={styles.avatarImg}
           />
           <View style={styles.verifiedTick}>
@@ -106,7 +103,7 @@ export default function ProfileScreen({ onBack, onReplayIntro, onOpenMyComplaint
             <View style={{ flex: 1 }}>
               <Text style={styles.myComplaintsTitle}>My Complaints</Text>
               <Text style={styles.myComplaintsSub}>
-                {studentStats?.totalComplaints || 0} total • {studentStats?.pending || 0} pending • {studentStats?.resolved || 0} resolved
+                {studentStats?.totalComplaints || 0} total • {studentStats?.pending || 0} pending review • {studentStats?.resolved || 0} resolved
               </Text>
             </View>
           </View>
@@ -114,83 +111,22 @@ export default function ProfileScreen({ onBack, onReplayIntro, onOpenMyComplaint
         </TouchableOpacity>
       )}
 
-      {/* Role & Panel Switcher for Demonstration */}
+      {/* Complaint rules */}
       <View style={styles.sectionContainer}>
         <View style={styles.sectionHeaderRow}>
-          <Ionicons name="people-circle" size={18} color={Colors.primary} />
-          <Text style={styles.sectionHeaderTitle}>Role Switcher & Panel Simulator</Text>
-        </View>
-        <Text style={styles.sectionSub}>
-          Switch roles to experience how FixBee adapts its panels and access permissions according to the backend specification:
-        </Text>
-
-        <View style={styles.rolesList}>
-          {PRESET_USERS.map((preset) => {
-            const isCurrent = user?.role === preset.role;
-            const pBadge = getRoleBadge(preset.role);
-            return (
-              <TouchableOpacity
-                key={preset.id}
-                style={[styles.roleCard, isCurrent && styles.roleCardActive]}
-                onPress={() => handleRoleSelect(preset.role)}
-                activeOpacity={0.8}
-              >
-                <Image source={{ uri: preset.profilePicture }} style={styles.roleCardAvatar} />
-                <View style={styles.roleCardInfo}>
-                  <View style={styles.roleCardNameRow}>
-                    <Text style={[styles.roleCardName, isCurrent && styles.roleCardNameActive]}>
-                      {preset.name}
-                    </Text>
-                    {isCurrent && (
-                      <View style={styles.activeCheckPill}>
-                        <Text style={styles.activeCheckText}>Active</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.roleCardDept}>{preset.department}</Text>
-                  <View style={[styles.roleCardBadge, { backgroundColor: pBadge.bg }]}>
-                    <Text style={[styles.roleCardBadgeText, { color: pBadge.color }]}>
-                      {pBadge.label}
-                    </Text>
-                  </View>
-                </View>
-                <Ionicons
-                  name={isCurrent ? 'radio-button-on' : 'radio-button-off'}
-                  size={18}
-                  color={isCurrent ? Colors.primary : Colors.textMuted}
-                />
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </View>
-
-      {/* Backend Compliance & Security Meters */}
-      <View style={styles.sectionContainer}>
-        <View style={styles.sectionHeaderRow}>
-          <Ionicons name="lock-closed" size={18} color={Colors.primary} />
-          <Text style={styles.sectionHeaderTitle}>Backend Compliance & Rules</Text>
+          <Ionicons name="information-circle-outline" size={18} color={Colors.primary} />
+          <Text style={styles.sectionHeaderTitle}>Complaint Rules</Text>
         </View>
 
         <View style={styles.ruleCard}>
-          <View style={styles.ruleItem}>
-            <Ionicons name="shield-checkmark" size={16} color="#22C55E" />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.ruleTitle}>AI Image Quality Guard</Text>
-              <Text style={styles.ruleDesc}>
-                4 invalid image strikes trigger a 7-day complaint block. Account currently clean (0 strikes).
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.ruleDivider} />
-
           <View style={styles.ruleItem}>
             <Ionicons name="calendar-outline" size={16} color={Colors.primary} />
             <View style={{ flex: 1 }}>
               <Text style={styles.ruleTitle}>Monthly Submission Cap</Text>
               <Text style={styles.ruleDesc}>
-                Each student has a quota of 10 monthly complaints to maintain high service quality.
+                {monthlyUsage
+                  ? `Students can submit up to ${monthlyUsage.limit} complaints each month. You have used ${monthlyUsage.submitted} of ${monthlyUsage.limit}.`
+                  : 'Students can submit up to 3 complaints each month.'}
               </Text>
             </View>
           </View>
@@ -332,80 +268,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: Colors.textPrimary,
-  },
-  sectionSub: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    lineHeight: 16,
-    marginBottom: 10,
-  },
-  rolesList: {
-    gap: 8,
-  },
-  roleCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.bgCard,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    padding: 12,
-    gap: 12,
-  },
-  roleCardActive: {
-    borderColor: Colors.primary,
-    backgroundColor: '#161620',
-  },
-  roleCardAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-  },
-  roleCardInfo: {
-    flex: 1,
-  },
-  roleCardNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  roleCardName: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-  },
-  roleCardNameActive: {
-    color: Colors.textPrimary,
-    fontWeight: '900',
-  },
-  activeCheckPill: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 8,
-  },
-  activeCheckText: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#0A0A0C',
-  },
-  roleCardDept: {
-    fontSize: 10,
-    color: Colors.textMuted,
-    marginVertical: 2,
-  },
-  roleCardBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginTop: 2,
-  },
-  roleCardBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
   },
   ruleCard: {
     backgroundColor: Colors.bgCard,

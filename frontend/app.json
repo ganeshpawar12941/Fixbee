@@ -3,24 +3,41 @@
     "name": "Fixbee",
     "slug": "fixbee",
     "version": "1.0.0",
+    "scheme": "fixbee",
     "description": "Fixbee - Buzz it, fix it! College Campus Repair & Complaint Management App",
     "orientation": "portrait",
-    "icon": "./assets/fixbee_logo.jpg",
+    "icon": "./assets/fixbee_bee_logo.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0F172A",
     "primaryColor": "#FFB800",
     "ios": {
+      "bundleIdentifier": "com.ganeshpawar.fixbee",
       "supportsTablet": true
     },
     "android": {
+      "package": "com.ganeshpawar.fixbee",
       "adaptiveIcon": {
         "backgroundColor": "#0F172A",
-        "foregroundImage": "./assets/fixbee_logo.jpg"
+        "foregroundImage": "./assets/fixbee_bee_logo.png"
       }
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/fixbee_bee_logo.png"
+    },
+    "plugins": [
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "color": "#FFB800",
+          "icon": "./assets/android-icon-monochrome.png"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "35c182d7-1428-43c5-a858-400a0126c64e"
+      }
     }
   }
 }
-

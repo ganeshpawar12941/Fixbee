@@ -6,19 +6,27 @@ import {
   Modal,
   ScrollView,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../theme/colors';
 import { useComplaints } from '../context/ComplaintsContext';
 
 export default function NotificationsModal({ visible, onClose, onSelectComplaint }) {
+  const insets = useSafeAreaInsets();
   const {
     notifications,
     unreadNotificationsCount,
     markNotificationRead,
     markAllNotificationsRead,
     complaints,
+    getComplaintDetails,
   } = useComplaints();
+
+  const getId = (value) => (
+    value && typeof value === 'object' ? value._id || value.id : value
+  );
 
   const getNotifIcon = (type) => {
     switch (type) {
@@ -28,31 +36,39 @@ export default function NotificationsModal({ visible, onClose, onSelectComplaint
         return { name: 'checkmark-circle', color: '#22C55E' };
       case 'complaint_rejected':
         return { name: 'close-circle', color: '#EF4444' };
-      case 'additional_info_requested':
-        return { name: 'chatbubbles', color: Colors.primary };
-      case 'invalid_image_warning':
-        return { name: 'warning', color: '#F59E0B' };
       default:
         return { name: 'notifications', color: Colors.primary };
     }
   };
 
-  const handleNotificationPress = (notif) => {
-    markNotificationRead(notif._id || notif.id);
-    if (notif.relatedComplaint && onSelectComplaint) {
-      const target = complaints.find(
-        (c) => (c._id || c.id) === notif.relatedComplaint
-      );
-      if (target) {
-        onClose();
-        onSelectComplaint(target);
+  const handleNotificationPress = async (notif) => {
+    try {
+      await markNotificationRead(notif._id || notif.id);
+      if (notif.relatedComplaint && onSelectComplaint) {
+        const relatedId = getId(notif.relatedComplaint);
+        const target = complaints.find((item) => String(getId(item)) === String(relatedId));
+        const complaint = target || await getComplaintDetails(relatedId);
+        if (complaint) {
+          onClose();
+          onSelectComplaint(complaint);
+        }
       }
+    } catch (error) {
+      Alert.alert('Unable to open notification', error.message || 'Please try again.');
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await markAllNotificationsRead();
+    } catch (error) {
+      Alert.alert('Unable to update notifications', error.message || 'Please try again.');
     }
   };
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
-      <View style={styles.container}>
+      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         {/* Header Bar */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
@@ -67,7 +83,7 @@ export default function NotificationsModal({ visible, onClose, onSelectComplaint
           </View>
 
           {unreadNotificationsCount > 0 && (
-            <TouchableOpacity onPress={markAllNotificationsRead} style={styles.markAllBtn}>
+            <TouchableOpacity onPress={handleMarkAllRead} style={styles.markAllBtn}>
               <Text style={styles.markAllText}>Read All</Text>
             </TouchableOpacity>
           )}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -7,16 +7,18 @@ import {
   TextInput,
   TouchableOpacity,
   RefreshControl,
+  ScrollView,
   Modal,
+  PanResponder,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../theme/colors';
+import { Colors, Categories, LocationTypes, StatusPills, SeverityLevels } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { useComplaints } from '../context/ComplaintsContext';
 import Header from '../components/Header';
 import ComplaintCard from '../components/ComplaintCard';
 import ComplaintDetailModal from './ComplaintDetailModal';
-import ResolveModal from '../components/ResolveModal';
 
 export default function HomeScreen({
   onNavigateAdd,
@@ -28,51 +30,109 @@ export default function HomeScreen({
     feedComplaints,
     sortBy,
     setSortBy,
+    activeCategory,
+    setActiveCategory,
+    activeLocation,
+    setActiveLocation,
+    activeStatus,
+    setActiveStatus,
+    activeSeverity,
+    setActiveSeverity,
     searchQuery,
     setSearchQuery,
     toggleLike,
     deleteComplaint,
-    updateComplaintStatus,
-    resolveComplaint,
-    checkBackend,
+    refreshLocalData,
   } = useComplaints();
 
   const [refreshing, setRefreshing] = useState(false);
   const [selectedComplaint, setSelectedComplaint] = useState(null);
-  const [managementTargetComplaint, setManagementTargetComplaint] = useState(null);
-  const [resolveTargetComplaint, setResolveTargetComplaint] = useState(null);
-  const [statusRemarks, setStatusRemarks] = useState('');
+  const [filtersVisible, setFiltersVisible] = useState(false);
+  const [draftFilters, setDraftFilters] = useState(null);
+  const filterDismissResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onPanResponderRelease: (_event, gestureState) => {
+      const isTap = Math.abs(gestureState.dx) < 8 && Math.abs(gestureState.dy) < 8;
+      const isDownwardSwipe = gestureState.dy > 36
+        && gestureState.dy > Math.abs(gestureState.dx);
+      if (isTap || isDownwardSwipe) setFiltersVisible(false);
+    },
+  }), []);
 
   const isStudent = user?.role === 'student';
+  const statusOptions = [
+    { id: 'all', label: 'All' },
+    ...Object.entries(StatusPills).map(([id, status]) => ({ id, label: status.label })),
+  ];
+  const severityOptions = [{ id: 'all', label: 'All' }, ...SeverityLevels];
+  const activeFilterCount = [
+    activeCategory,
+    activeLocation,
+    activeStatus,
+    activeSeverity,
+  ].filter((value) => value !== 'all').length;
+  const sortLabels = {
+    most_liked: 'Most Liked',
+    newest: 'Latest',
+    oldest: 'Oldest',
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await checkBackend();
-    setTimeout(() => {
+    try {
+      await refreshLocalData();
+    } catch (error) {
+      Alert.alert('Unable to refresh', error.message || 'Please try again.');
+    } finally {
       setRefreshing(false);
-    }, 500);
+    }
   };
 
-  const handleStatusUpdate = async (newStatus) => {
-    if (!managementTargetComplaint) return;
-    await updateComplaintStatus(
-      managementTargetComplaint._id || managementTargetComplaint.id,
-      newStatus,
-      statusRemarks || `Updated to ${newStatus}`
-    );
-    setStatusRemarks('');
-    setManagementTargetComplaint(null);
+  const openFilters = () => {
+    setDraftFilters({
+      category: activeCategory,
+      location: activeLocation,
+      status: activeStatus,
+      severity: activeSeverity,
+      sortBy,
+    });
+    setFiltersVisible(true);
   };
 
-  const handleOpenResolveModal = () => {
-    if (!managementTargetComplaint) return;
-    const target = managementTargetComplaint;
-    setManagementTargetComplaint(null);
-    setStatusRemarks('');
-    setResolveTargetComplaint(target);
+  const applyFilters = () => {
+    if (!draftFilters) return;
+    setActiveCategory(draftFilters.category);
+    setActiveLocation(draftFilters.location);
+    setActiveStatus(draftFilters.status);
+    setActiveSeverity(draftFilters.severity);
+    setSortBy(draftFilters.sortBy);
+    setFiltersVisible(false);
   };
 
-  // Clean, Minimal Header: Just clean search & clean sorting tabs, no clutter
+  const renderFilterGroup = (label, options, selected, onSelect) => (
+    <View style={styles.filterGroup}>
+      <Text style={styles.filterGroupTitle}>{label}</Text>
+      <View style={styles.filterOptions}>
+        {options.map((option) => {
+          const isActive = selected === option.id;
+          return (
+            <TouchableOpacity
+              key={option.id}
+              style={[styles.filterChip, isActive && styles.filterChipActive]}
+              onPress={() => onSelect(option.id)}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  // Keep the search and controls in a reconciled header element.
   const renderHeader = () => (
     <View style={styles.cleanHeaderContainer}>
       {/* Clean Search Input */}
@@ -93,36 +153,28 @@ export default function HomeScreen({
         )}
       </View>
 
-      {/* Simple Black & Yellow Sort Controls */}
-      <View style={styles.sortRow}>
+      <View style={styles.filterBar}>
         <TouchableOpacity
-          style={[styles.sortButton, sortBy === 'trending' && styles.sortButtonActive]}
-          onPress={() => setSortBy('trending')}
+          style={styles.filterAction}
+          onPress={openFilters}
           activeOpacity={0.8}
         >
-          <Text style={[styles.sortButtonText, sortBy === 'trending' && styles.sortButtonTextActive]}>
-            Top Buzz
-          </Text>
+          <Ionicons name="options-outline" size={15} color={Colors.textPrimary} />
+          <Text style={styles.filterActionText}>Filters</Text>
+          {activeFilterCount > 0 && (
+            <View style={styles.filterCountBadge}>
+              <Text style={styles.filterCountText}>{activeFilterCount}</Text>
+            </View>
+          )}
         </TouchableOpacity>
-
         <TouchableOpacity
-          style={[styles.sortButton, sortBy === 'newest' && styles.sortButtonActive]}
-          onPress={() => setSortBy('newest')}
+          style={styles.filterAction}
+          onPress={openFilters}
           activeOpacity={0.8}
         >
-          <Text style={[styles.sortButtonText, sortBy === 'newest' && styles.sortButtonTextActive]}>
-            Latest
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.sortButton, sortBy === 'oldest' && styles.sortButtonActive]}
-          onPress={() => setSortBy('oldest')}
-          activeOpacity={0.8}
-        >
-          <Text style={[styles.sortButtonText, sortBy === 'oldest' && styles.sortButtonTextActive]}>
-            Oldest
-          </Text>
+          <Ionicons name="swap-vertical-outline" size={15} color={Colors.textPrimary} />
+          <Text style={styles.filterActionText}>Sort: {sortLabels[sortBy] || 'Latest'}</Text>
+          <Ionicons name="chevron-down" size={13} color={Colors.textMuted} />
         </TouchableOpacity>
       </View>
     </View>
@@ -145,10 +197,9 @@ export default function HomeScreen({
             onLike={toggleLike}
             onSelect={(c) => setSelectedComplaint(c)}
             onDelete={deleteComplaint}
-            onStatusChange={(c) => setManagementTargetComplaint(c)}
           />
         )}
-        ListHeaderComponent={renderHeader}
+        ListHeaderComponent={renderHeader()}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="folder-open-outline" size={40} color={Colors.textMuted} style={{ marginBottom: 8 }} />
@@ -181,7 +232,7 @@ export default function HomeScreen({
         contentContainerStyle={styles.listContent}
       />
 
-      {/* Complaint Detail & Discussion Modal */}
+      {/* Complaint Details */}
       {selectedComplaint && (
         <ComplaintDetailModal
           visible={!!selectedComplaint}
@@ -191,79 +242,85 @@ export default function HomeScreen({
         />
       )}
 
-      {/* Management Quick Workflow Modal */}
-      {managementTargetComplaint && (
-        <Modal
-          visible={!!managementTargetComplaint}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setManagementTargetComplaint(null)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.managementModalCard}>
-              <View style={styles.managementModalHeader}>
-                <Text style={styles.managementModalTitle}>Management Status Update</Text>
-                <TouchableOpacity onPress={() => setManagementTargetComplaint(null)}>
-                  <Ionicons name="close" size={20} color={Colors.textMuted} />
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.managementTargetTitle} numberOfLines={2}>
-                {managementTargetComplaint.title}
-              </Text>
-
-              <TextInput
-                style={styles.modalRemarksInput}
-                placeholder="Official notes or dispatch remarks..."
-                placeholderTextColor={Colors.textMuted}
-                value={statusRemarks}
-                onChangeText={setStatusRemarks}
-                multiline
-              />
-
-              <View style={styles.statusActionButtons}>
-                <TouchableOpacity
-                  style={[styles.statusBtn, styles.statusBtnUnderReview]}
-                  onPress={() => handleStatusUpdate('under_review')}
-                >
-                  <Text style={styles.statusBtnTextYellow}>Under Review</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.statusBtn, styles.statusBtnInProgress]}
-                  onPress={() => handleStatusUpdate('in_progress')}
-                >
-                  <Text style={styles.statusBtnTextYellow}>In Progress</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.statusBtn, styles.statusBtnResolved]}
-                  onPress={handleOpenResolveModal}
-                >
-                  <Text style={styles.statusBtnTextGreen}>Resolve (Photo)</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.statusBtn, styles.statusBtnReject]}
-                  onPress={() => handleStatusUpdate('rejected')}
-                >
-                  <Text style={styles.statusBtnTextRed}>Reject</Text>
-                </TouchableOpacity>
-              </View>
+      <Modal
+        visible={filtersVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFiltersVisible(false)}
+      >
+        <View style={styles.filterModalOverlay}>
+          <TouchableOpacity
+            style={styles.filterBackdrop}
+            onPress={() => setFiltersVisible(false)}
+            activeOpacity={1}
+            accessibilityLabel="Close filters"
+          />
+          <View style={styles.filterSheet}>
+            <View
+              style={styles.sheetHandleArea}
+              accessibilityRole="button"
+              accessibilityLabel="Close filters"
+              {...filterDismissResponder.panHandlers}
+            >
+              <View style={styles.sheetHandle} />
             </View>
+            <View style={styles.sheetHeader}>
+              <View>
+                <Text style={styles.sheetTitle}>Filter complaints</Text>
+                <Text style={styles.sheetSubtitle}>Choose what you want to see</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setDraftFilters({
+                  category: 'all',
+                  location: 'all',
+                  status: 'all',
+                  severity: 'all',
+                  sortBy: 'newest',
+                })}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.resetFiltersText}>Reset</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              style={styles.filterSheetScroll}
+              contentContainerStyle={styles.filterSheetContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {draftFilters && (
+                <>
+                  {renderFilterGroup('Category', Categories, draftFilters.category, (value) => (
+                    setDraftFilters((current) => ({ ...current, category: value }))
+                  ))}
+                  {renderFilterGroup('Location', LocationTypes, draftFilters.location, (value) => (
+                    setDraftFilters((current) => ({ ...current, location: value }))
+                  ))}
+                  {renderFilterGroup('Status', statusOptions, draftFilters.status, (value) => (
+                    setDraftFilters((current) => ({ ...current, status: value }))
+                  ))}
+                  {renderFilterGroup('Severity', severityOptions, draftFilters.severity, (value) => (
+                    setDraftFilters((current) => ({ ...current, severity: value }))
+                  ))}
+                  {renderFilterGroup('Sort by', [
+                    { id: 'newest', label: 'Latest' },
+                    { id: 'oldest', label: 'Oldest' },
+                    { id: 'most_liked', label: 'Most Liked' },
+                  ], draftFilters.sortBy, (value) => (
+                    setDraftFilters((current) => ({ ...current, sortBy: value }))
+                  ))}
+                </>
+              )}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.applyFiltersButton}
+              onPress={applyFilters}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.applyFiltersText}>Show complaints</Text>
+            </TouchableOpacity>
           </View>
-        </Modal>
-      )}
-
-      {/* Mandatory Photo Resolution Modal */}
-      {resolveTargetComplaint && (
-        <ResolveModal
-          visible={!!resolveTargetComplaint}
-          complaint={resolveTargetComplaint}
-          onClose={() => setResolveTargetComplaint(null)}
-          onConfirmResolve={resolveComplaint}
-        />
-      )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -300,33 +357,147 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textPrimary,
   },
-  sortRow: {
+  filterBar: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 4,
-  },
-  sortButton: {
-    flex: 1,
-    backgroundColor: Colors.bgCard,
-    paddingVertical: 7,
-    borderRadius: 8,
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 2,
+  },
+  filterAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: Colors.bgCard,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: Colors.borderSubtle,
   },
-  sortButtonActive: {
-    backgroundColor: 'rgba(255, 193, 7, 0.12)',
-    borderColor: Colors.primary,
-  },
-  sortButtonText: {
+  filterActionText: {
     fontSize: 11,
-    fontWeight: '600',
-    color: Colors.textMuted,
+    fontWeight: '700',
+    color: Colors.textPrimary,
   },
-  sortButtonTextActive: {
-    color: Colors.primary,
+  filterCountBadge: {
+    width: 17,
+    height: 17,
+    borderRadius: 9,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterCountText: {
+    color: Colors.textInverse,
+    fontSize: 10,
     fontWeight: '800',
+  },
+  filterModalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  filterBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  filterSheet: {
+    maxHeight: '86%',
+    backgroundColor: Colors.bgCardElevated,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 24,
+    borderWidth: 1,
+    borderColor: Colors.borderSubtle,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.textPrimary,
+  },
+  sheetHandleArea: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 36,
+    marginBottom: 8,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  sheetTitle: {
+    color: Colors.textPrimary,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  sheetSubtitle: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    marginTop: 3,
+  },
+  resetFiltersText: {
+    color: Colors.primary,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  filterSheetScroll: {
+    flexShrink: 1,
+  },
+  filterSheetContent: {
+    paddingBottom: 10,
+  },
+  filterGroup: {
+    marginBottom: 16,
+  },
+  filterGroupTitle: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  filterOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+  },
+  filterChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.borderSubtle,
+    backgroundColor: Colors.bgCard,
+  },
+  filterChipActive: {
+    borderColor: Colors.primary,
+    backgroundColor: 'rgba(255, 193, 7, 0.12)',
+  },
+  filterChipText: {
+    color: Colors.textSecondary,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  filterChipTextActive: {
+    color: Colors.primary,
+  },
+  applyFiltersButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  applyFiltersText: {
+    color: Colors.textInverse,
+    fontSize: 13,
+    fontWeight: '900',
   },
   emptyContainer: {
     alignItems: 'center',
@@ -364,93 +535,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
     color: '#0A0A0C',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.82)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-  },
-  managementModalCard: {
-    width: '100%',
-    maxWidth: 380,
-    backgroundColor: Colors.bgCardElevated,
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-  },
-  managementModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  managementModalTitle: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: Colors.primary,
-  },
-  managementTargetTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 10,
-  },
-  modalRemarksInput: {
-    backgroundColor: Colors.bgInput,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    color: Colors.textPrimary,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 12,
-    minHeight: 55,
-    textAlignVertical: 'top',
-    marginBottom: 12,
-  },
-  statusActionButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  statusBtn: {
-    flex: 1,
-    minWidth: '47%',
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.bgCard,
-  },
-  statusBtnUnderReview: {
-    borderColor: Colors.primary,
-  },
-  statusBtnInProgress: {
-    borderColor: Colors.primary,
-  },
-  statusBtnResolved: {
-    borderColor: '#22C55E',
-  },
-  statusBtnReject: {
-    borderColor: '#EF4444',
-  },
-  statusBtnTextYellow: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: Colors.primary,
-  },
-  statusBtnTextGreen: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#22C55E',
-  },
-  statusBtnTextRed: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#EF4444',
   },
 });

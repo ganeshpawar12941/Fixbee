@@ -174,7 +174,7 @@ export default function IntroScreen({ onProceed }) {
           ]}
         >
           <Image
-            source={require('../../assets/fixbee_logo.jpg')}
+            source={require('../../assets/fixbee_bee_logo.png')}
             style={styles.logoImage}
             resizeMode="contain"
           />

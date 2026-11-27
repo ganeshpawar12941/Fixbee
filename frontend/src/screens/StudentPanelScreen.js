@@ -17,13 +17,14 @@ import { useComplaints } from '../context/ComplaintsContext';
 export default function StudentPanelScreen({
   onSelectComplaint,
   onNavigateAdd,
+  onEditComplaint,
 }) {
   const { user } = useAuth();
   const {
     complaints,
     getStudentDashboardData,
     deleteComplaint,
-    checkBackend,
+    refreshLocalData,
   } = useComplaints();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -39,8 +40,13 @@ export default function StudentPanelScreen({
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await checkBackend();
-    setTimeout(() => setRefreshing(false), 600);
+    try {
+      await refreshLocalData();
+    } catch (error) {
+      Alert.alert('Unable to refresh', error.message || 'Please try again.');
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleDelete = (cmpId) => {
@@ -49,7 +55,17 @@ export default function StudentPanelScreen({
       'Are you sure you want to withdraw this complaint from the campus queue?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Withdraw', style: 'destructive', onPress: () => deleteComplaint(cmpId) },
+        {
+          text: 'Withdraw',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteComplaint(cmpId);
+            } catch (error) {
+              Alert.alert('Unable to withdraw complaint', error.message || 'Please try again.');
+            }
+          },
+        },
       ]
     );
   };
@@ -101,9 +117,9 @@ export default function StudentPanelScreen({
 
         {/* Quality Guard Status */}
         <View style={styles.safetyStatusRow}>
-          <Ionicons name="shield-checkmark" size={15} color="#22C55E" />
+          <Ionicons name="information-circle-outline" size={15} color={Colors.primary} />
           <Text style={styles.safetyStatusText}>
-            Image Strikes: 0/4 • Safe standing (No temporary submission blocks)
+            Reports are reviewed by campus management after submission.
           </Text>
         </View>
       </View>
@@ -116,7 +132,7 @@ export default function StudentPanelScreen({
         </View>
         <View style={styles.statBox}>
           <Text style={[styles.statNumber, { color: Colors.primary }]}>{stats.pending}</Text>
-          <Text style={styles.statLabel}>In Review</Text>
+          <Text style={styles.statLabel}>Pending Review</Text>
         </View>
         <View style={styles.statBox}>
           <Text style={[styles.statNumber, { color: Colors.primary }]}>{stats.inProgress}</Text>
@@ -151,12 +167,24 @@ export default function StudentPanelScreen({
                   </Text>
                 </View>
 
-                <TouchableOpacity
-                  onPress={() => handleDelete(item._id || item.id)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="trash-outline" size={15} color={Colors.accentDanger} />
-                </TouchableOpacity>
+                {item.status === 'submitted' && (
+                  <View style={styles.ownerActions}>
+                    <TouchableOpacity
+                      onPress={() => onEditComplaint?.(item)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityLabel="Edit complaint"
+                    >
+                      <Ionicons name="create-outline" size={16} color={Colors.primary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleDelete(item._id || item.id)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      accessibilityLabel="Withdraw complaint"
+                    >
+                      <Ionicons name="trash-outline" size={15} color={Colors.accentDanger} />
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
 
               <TouchableOpacity activeOpacity={0.85} onPress={() => onSelectComplaint(item)}>
@@ -165,6 +193,22 @@ export default function StudentPanelScreen({
                   {item.description}
                 </Text>
               </TouchableOpacity>
+
+              {item.additionalInfo?.length > 0 && (
+                <TouchableOpacity
+                  style={styles.additionalInfoPreview}
+                  activeOpacity={0.85}
+                  onPress={() => onSelectComplaint(item)}
+                >
+                  <Ionicons name="information-circle-outline" size={16} color={Colors.primary} />
+                  <View style={styles.additionalInfoPreviewContent}>
+                    <Text style={styles.additionalInfoPreviewTitle}>Latest official update</Text>
+                    <Text style={styles.additionalInfoPreviewText} numberOfLines={2}>
+                      {item.additionalInfo[item.additionalInfo.length - 1].message}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
 
               {/* Resolution Proof Photo shown directly in Student's account */}
               {item.status === 'resolved' && item.resolutionPhoto && (
@@ -187,11 +231,6 @@ export default function StudentPanelScreen({
 
               <View style={styles.cardFooter}>
                 <View style={styles.footerLeft}>
-                  <Ionicons name="chatbubbles-outline" size={13} color={Colors.textMuted} />
-                  <Text style={styles.footerText}>
-                    {item.additionalInfo?.length || 0} updates
-                  </Text>
-                  <Text style={styles.footerDot}>•</Text>
                   <Text style={styles.footerText}>▲ {item.likesCount || 0} upvotes</Text>
                 </View>
 
@@ -200,7 +239,7 @@ export default function StudentPanelScreen({
                   onPress={() => onSelectComplaint(item)}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.viewThreadText}>View Thread</Text>
+                  <Text style={styles.viewThreadText}>View Details</Text>
                   <Ionicons name="chevron-forward" size={13} color={Colors.primary} />
                 </TouchableOpacity>
               </View>
@@ -378,6 +417,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 8,
   },
+  ownerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -403,6 +447,31 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginBottom: 10,
   },
+  additionalInfoPreview: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: 'rgba(255, 193, 7, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 193, 7, 0.18)',
+    borderRadius: 9,
+    padding: 9,
+    marginBottom: 10,
+  },
+  additionalInfoPreviewContent: {
+    flex: 1,
+  },
+  additionalInfoPreviewTitle: {
+    color: Colors.primary,
+    fontSize: 10,
+    fontWeight: '800',
+    marginBottom: 3,
+  },
+  additionalInfoPreviewText: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    lineHeight: 15,
+  },
   cardFooter: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -418,9 +487,6 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 11,
-    color: Colors.textMuted,
-  },
-  footerDot: {
     color: Colors.textMuted,
   },
   viewThreadBtn: {

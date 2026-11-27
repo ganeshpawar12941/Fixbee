@@ -6,7 +6,6 @@ import {
   Modal,
   TouchableOpacity,
   Image,
-  TextInput,
   Alert,
   ActivityIndicator,
 } from 'react-native';
@@ -21,7 +20,6 @@ export default function ResolveModal({
   onConfirmResolve,
 }) {
   const [photoUri, setPhotoUri] = useState(null);
-  const [remarks, setRemarks] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!complaint) return null;
@@ -82,9 +80,8 @@ export default function ResolveModal({
 
     setIsSubmitting(true);
     try {
-      await onConfirmResolve(complaint._id || complaint.id, photoUri, remarks);
+      await onConfirmResolve(complaint._id || complaint.id, photoUri);
       setPhotoUri(null);
-      setRemarks('');
       onClose();
     } catch (err) {
       Alert.alert('Resolution Failed', err.message || 'Unable to resolve complaint.');
@@ -95,7 +92,6 @@ export default function ResolveModal({
 
   const handleClose = () => {
     setPhotoUri(null);
-    setRemarks('');
     onClose();
   };
 
@@ -161,16 +157,6 @@ export default function ResolveModal({
               </TouchableOpacity>
             </View>
           )}
-
-          {/* Optional Remarks */}
-          <TextInput
-            style={styles.remarksInput}
-            placeholder="Resolution note for the student (optional)..."
-            placeholderTextColor={Colors.textMuted}
-            value={remarks}
-            onChangeText={setRemarks}
-            multiline
-          />
 
           {/* Confirm Button (Disabled until photo is provided) */}
           <TouchableOpacity
@@ -330,19 +316,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: '#0A0A0C',
-  },
-  remarksInput: {
-    backgroundColor: Colors.bgInput,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    color: Colors.textPrimary,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    fontSize: 12,
-    minHeight: 54,
-    textAlignVertical: 'top',
-    marginBottom: 14,
   },
   confirmBtn: {
     flexDirection: 'row',

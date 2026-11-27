@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Platform,
+  BackHandler,
   StatusBar as RNStatusBar,
   ActivityIndicator,
   Image,
@@ -27,6 +28,7 @@ import ManagementPanelScreen from './src/screens/ManagementPanelScreen';
 import StudentPanelScreen from './src/screens/StudentPanelScreen';
 import ComplaintDetailModal from './src/screens/ComplaintDetailModal';
 import NotificationsModal from './src/components/NotificationsModal';
+import PushNotificationManager from './src/components/PushNotificationManager';
 
 function MainApp() {
   const { user, isAuthenticated, isLoading, hasSeenIntro } = useAuth();
@@ -38,18 +40,97 @@ function MainApp() {
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showMyComplaintsModal, setShowMyComplaintsModal] = useState(false);
   const [activeComplaintDetail, setActiveComplaintDetail] = useState(null);
+  const [complaintToEdit, setComplaintToEdit] = useState(null);
+  const [navigationHistory, setNavigationHistory] = useState([]);
+  const [returnToMyComplaints, setReturnToMyComplaints] = useState(false);
+  const handleNotificationResponse = useCallback(() => {
+    setCurrentTab('home');
+    setShowNotificationsModal(true);
+  }, []);
 
   const isStudent = user?.role === 'student';
   const isDean = user?.role === 'infrastructure_dean';
   const isWarden = user?.role === 'warden';
   const isAdmin = user?.role === 'admin';
 
+  const navigateToTab = (nextTab) => {
+    if (currentTab === nextTab) return;
+    setNavigationHistory((history) => [...history, currentTab].slice(-20));
+    setCurrentTab(nextTab);
+  };
+
+  const resetNavigationToHome = () => {
+    setNavigationHistory([]);
+    setReturnToMyComplaints(false);
+    setCurrentTab('home');
+  };
+
+  const closeComplaintDetails = () => {
+    setActiveComplaintDetail(null);
+    if (returnToMyComplaints) {
+      setShowMyComplaintsModal(true);
+      setReturnToMyComplaints(false);
+    }
+  };
+
+  const goBack = () => {
+    if (activeComplaintDetail) {
+      closeComplaintDetails();
+      return true;
+    }
+    if (showNotificationsModal) {
+      setShowNotificationsModal(false);
+      return true;
+    }
+    if (showMyComplaintsModal) {
+      setShowMyComplaintsModal(false);
+      return true;
+    }
+    if (showIntroModal) {
+      setShowIntroModal(false);
+      return true;
+    }
+    if (currentTab === 'home') {
+      return false;
+    }
+    if (navigationHistory.length > 0) {
+      const previousTab = navigationHistory[navigationHistory.length - 1];
+      setNavigationHistory((history) => history.slice(0, -1));
+      setCurrentTab(previousTab);
+      if (complaintToEdit) setComplaintToEdit(null);
+      if (returnToMyComplaints) {
+        setShowMyComplaintsModal(true);
+        setReturnToMyComplaints(false);
+      }
+      return true;
+    }
+    setCurrentTab('home');
+    return true;
+  };
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', goBack);
+    return () => subscription.remove();
+  }, [
+    activeComplaintDetail,
+    showNotificationsModal,
+    showMyComplaintsModal,
+    showIntroModal,
+    navigationHistory,
+    complaintToEdit,
+    returnToMyComplaints,
+    currentTab,
+  ]);
+
   // Reset modal if role changes away from student
   useEffect(() => {
     if (!isStudent && showMyComplaintsModal) {
       setShowMyComplaintsModal(false);
     }
-  }, [isStudent]);
+    if (!isStudent && complaintToEdit) {
+      setComplaintToEdit(null);
+    }
+  }, [isStudent, showMyComplaintsModal, complaintToEdit]);
 
   // 1. Initial Loading Splash
   if (isLoading) {
@@ -57,7 +138,7 @@ function MainApp() {
       <View style={styles.splashContainer}>
         <View style={styles.splashLogoCard}>
           <Image
-            source={require('./assets/fixbee_logo.jpg')}
+            source={require('./assets/fixbee_bee_logo.png')}
             style={styles.splashLogoImage}
             resizeMode="contain"
           />
@@ -110,6 +191,7 @@ function MainApp() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight : 0 }]}>
+      <PushNotificationManager onNotificationResponse={handleNotificationResponse} />
       <View style={styles.phoneContainer}>
         {/* Screen Content */}
         <View style={styles.screenContainer}>
@@ -117,9 +199,12 @@ function MainApp() {
           {currentTab === 'home' && (
             <HomeScreen
               onNavigateAdd={() => {
-                if (isStudent) setCurrentTab('center');
+                if (isStudent) {
+                  setComplaintToEdit(null);
+                  navigateToTab('center');
+                }
               }}
-              onProfilePress={() => setCurrentTab('profile')}
+              onProfilePress={() => navigateToTab('profile')}
               onNotificationsPress={() => setShowNotificationsModal(true)}
             />
           )}
@@ -129,8 +214,10 @@ function MainApp() {
             <>
               {isStudent ? (
                 <AddComplaintScreen
+                  complaintToEdit={complaintToEdit}
                   onSuccessNavigation={() => {
-                    setCurrentTab('home');
+                    setComplaintToEdit(null);
+                    resetNavigationToHome();
                   }}
                 />
               ) : isAdmin ? (
@@ -148,7 +235,7 @@ function MainApp() {
           {/* Tab 3: Profile (includes My Complaints for students) */}
           {currentTab === 'profile' && (
             <ProfileScreen
-              onBack={() => setCurrentTab('home')}
+              onBack={goBack}
               onReplayIntro={() => setShowIntroModal(true)}
               onOpenMyComplaints={() => setShowMyComplaintsModal(true)}
             />
@@ -180,11 +267,20 @@ function MainApp() {
                 <StudentPanelScreen
                   onSelectComplaint={(c) => {
                     setShowMyComplaintsModal(false);
+                    setReturnToMyComplaints(true);
                     setActiveComplaintDetail(c);
                   }}
                   onNavigateAdd={() => {
                     setShowMyComplaintsModal(false);
-                    setCurrentTab('center');
+                    setComplaintToEdit(null);
+                    setReturnToMyComplaints(true);
+                    navigateToTab('center');
+                  }}
+                  onEditComplaint={(complaint) => {
+                    setShowMyComplaintsModal(false);
+                    setComplaintToEdit(complaint);
+                    setReturnToMyComplaints(true);
+                    navigateToTab('center');
                   }}
                 />
               </View>
@@ -201,12 +297,12 @@ function MainApp() {
           />
         )}
 
-        {/* Full Detail & Comments Modal */}
+        {/* Full Complaint Details Modal */}
         {activeComplaintDetail && (
           <ComplaintDetailModal
             visible={!!activeComplaintDetail}
             complaint={activeComplaintDetail}
-            onClose={() => setActiveComplaintDetail(null)}
+            onClose={closeComplaintDetails}
             onLike={toggleLike}
           />
         )}
@@ -216,7 +312,7 @@ function MainApp() {
           {/* 1. Left Tab: Feed */}
           <TouchableOpacity
             style={styles.navTab}
-            onPress={() => setCurrentTab('home')}
+            onPress={() => navigateToTab('home')}
             activeOpacity={0.7}
           >
             <Ionicons
@@ -232,7 +328,7 @@ function MainApp() {
           {/* 2. Center Hero Yellow Bump Button (All Logins) */}
           <TouchableOpacity
             style={styles.centerAddButton}
-            onPress={() => setCurrentTab('center')}
+            onPress={() => navigateToTab('center')}
             activeOpacity={0.85}
           >
             <View style={[styles.centerAddCircle, currentTab === 'center' && styles.centerAddCircleActive]}>
@@ -250,7 +346,7 @@ function MainApp() {
           {/* 3. Right Tab: Profile */}
           <TouchableOpacity
             style={styles.navTab}
-            onPress={() => setCurrentTab('profile')}
+            onPress={() => navigateToTab('profile')}
             activeOpacity={0.7}
           >
             <Ionicons
@@ -285,6 +381,7 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
+    width: '100%',
     backgroundColor: Colors.bgDark,
     alignItems: 'center',
   },

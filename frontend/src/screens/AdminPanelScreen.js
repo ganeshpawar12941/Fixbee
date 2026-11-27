@@ -7,29 +7,47 @@ import {
   TouchableOpacity,
   RefreshControl,
   Alert,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, StatusPills } from '../theme/colors';
 import { useComplaints } from '../context/ComplaintsContext';
+import ResolveModal from '../components/ResolveModal';
+
+const STATUS_TRANSITIONS = {
+  submitted: ['under_review', 'rejected'],
+  under_review: ['in_progress', 'rejected'],
+  in_progress: [],
+  resolved: [],
+  rejected: [],
+};
 
 export default function AdminPanelScreen({ onSelectComplaint }) {
-  const { getAdminAnalyticsData, checkBackend, complaints } = useComplaints();
+  const {
+    getAdminAnalyticsData,
+    refreshLocalData,
+    complaints,
+    updateComplaintStatus,
+    resolveComplaint,
+  } = useComplaints();
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('dean'); // 'dean' | 'hostel' | 'all'
+  const [selectedActionTarget, setSelectedActionTarget] = useState(null);
+  const [showResolveModal, setShowResolveModal] = useState(false);
 
   const data = getAdminAnalyticsData();
   const stats = data.complaintStatistics;
-  const overview = data.overview;
   const resolution = data.resolutionPerformance;
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await checkBackend();
-    setTimeout(() => setRefreshing(false), 500);
-  };
-
-  const handleEscalate = (cmp) => {
-    Alert.alert('Priority Escalated', `Ticket "${cmp.title}" marked as high urgency for immediate dispatch.`);
+    try {
+      await refreshLocalData();
+    } catch (error) {
+      Alert.alert('Unable to refresh', error.message || 'Please try again.');
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // Filter complaints received by Dean Infra (all buildings in campus, excluding hostels)
@@ -52,11 +70,29 @@ export default function AdminPanelScreen({ onSelectComplaint }) {
   const overdueCount = stats.overdue || 0;
   const rejectedCount = stats.rejected || 0;
   const inProgressCount = (stats.inProgress || 0) + (stats.underReview || 0);
+  const categoryBreakdown = data.categoryBreakdown || [];
+  const locationBreakdown = data.locationBreakdown || [];
+  const severityBreakdown = data.severityBreakdown || [];
+  const monthlyTrends = data.monthlyTrends || [];
+  const imageStrikeCount = data.imageValidationStatistics?.studentsWithImageStrikes;
 
   const solvedPercent = Math.round((solvedCount / total) * 100);
   const overduePercent = Math.round((overdueCount / total) * 100);
   const rejectedPercent = Math.round((rejectedCount / total) * 100);
   const inProgressPercent = Math.round((inProgressCount / total) * 100);
+
+  const handleUpdateStatus = async (status) => {
+    if (!selectedActionTarget) return;
+    try {
+      await updateComplaintStatus(
+        selectedActionTarget._id || selectedActionTarget.id,
+        status
+      );
+      setSelectedActionTarget(null);
+    } catch (error) {
+      Alert.alert('Status Update Failed', error.message || 'Unable to update complaint status.');
+    }
+  };
 
   return (
     <View style={styles.outerContainer}>
@@ -80,12 +116,11 @@ export default function AdminPanelScreen({ onSelectComplaint }) {
             </View>
             <View>
               <Text style={styles.adminTitle}>Campus Admin Dashboard</Text>
-              <Text style={styles.adminSubtitle}>Central Oversight & Performance Telemetry</Text>
+              <Text style={styles.adminSubtitle}>Campus-wide complaint overview</Text>
             </View>
           </View>
-          <View style={styles.liveIndicator}>
-            <View style={styles.pulseDot} />
-            <Text style={styles.liveText}>Live Telemetry</Text>
+          <View style={styles.demoIndicator}>
+            <Text style={styles.demoText}>LIVE DATA</Text>
           </View>
         </View>
 
@@ -93,19 +128,19 @@ export default function AdminPanelScreen({ onSelectComplaint }) {
         <View style={styles.kpiGrid}>
           <View style={[styles.kpiCard, { borderColor: Colors.primary }]}>
             <Text style={[styles.kpiValue, { color: Colors.primary }]}>{stats.totalComplaints}</Text>
-            <Text style={styles.kpiLabel}>Total Tickets</Text>
+            <Text style={styles.kpiLabel}>Total Complaints</Text>
             <Ionicons name="receipt" size={14} color={Colors.primary} style={styles.kpiCornerIcon} />
           </View>
 
           <View style={[styles.kpiCard, { borderColor: Colors.primary }]}>
             <Text style={[styles.kpiValue, { color: Colors.primary }]}>{stats.pending}</Text>
-            <Text style={styles.kpiLabel}>In Pipeline</Text>
+            <Text style={styles.kpiLabel}>Open Complaints</Text>
             <Ionicons name="hourglass" size={14} color={Colors.primary} style={styles.kpiCornerIcon} />
           </View>
 
           <View style={[styles.kpiCard, { borderColor: '#22C55E' }]}>
             <Text style={[styles.kpiValue, { color: '#22C55E' }]}>{stats.resolved}</Text>
-            <Text style={styles.kpiLabel}>Problems Solved</Text>
+            <Text style={styles.kpiLabel}>Resolved Complaints</Text>
             <Ionicons name="checkmark-done" size={14} color="#22C55E" style={styles.kpiCornerIcon} />
           </View>
 
@@ -113,16 +148,16 @@ export default function AdminPanelScreen({ onSelectComplaint }) {
             <Text style={[styles.kpiValue, { color: stats.overdue > 0 ? '#EF4444' : Colors.textSecondary }]}>
               {stats.overdue}
             </Text>
-            <Text style={styles.kpiLabel}>Overdue (&gt;24h)</Text>
+            <Text style={styles.kpiLabel}>Overdue (over 7 days)</Text>
             <Ionicons name="alert-circle" size={14} color={stats.overdue > 0 ? '#EF4444' : Colors.textMuted} style={styles.kpiCornerIcon} />
           </View>
         </View>
 
-        {/* 2. Visual Graph: Problems Solved vs. Overdue vs. Rejected */}
+        {/* 2. Visual Graph: Resolved, Overdue, and Rejected Complaints */}
         <View style={styles.sectionCard}>
           <View style={styles.sectionTitleRow}>
             <Ionicons name="bar-chart" size={16} color={Colors.primary} />
-            <Text style={styles.sectionTitle}>Resolution Graph: Solved vs Overdue vs Rejected</Text>
+            <Text style={styles.sectionTitle}>Complaint Status Overview</Text>
           </View>
 
           <View style={styles.graphContainer}>
@@ -141,7 +176,7 @@ export default function AdminPanelScreen({ onSelectComplaint }) {
                 <View style={styles.metricProgressHeader}>
                   <View style={styles.metricDotRow}>
                     <View style={[styles.legendDot, { backgroundColor: '#22C55E' }]} />
-                    <Text style={styles.metricItemTitle}>Problems Solved</Text>
+                    <Text style={styles.metricItemTitle}>Resolved Complaints</Text>
                   </View>
                   <Text style={[styles.metricItemScore, { color: '#22C55E' }]}>
                     {solvedCount} ({solvedPercent}%)
@@ -157,7 +192,7 @@ export default function AdminPanelScreen({ onSelectComplaint }) {
                 <View style={styles.metricProgressHeader}>
                   <View style={styles.metricDotRow}>
                     <View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} />
-                    <Text style={styles.metricItemTitle}>Problems Overdue (&gt;24h SLA)</Text>
+                    <Text style={styles.metricItemTitle}>Overdue (over 7 days)</Text>
                   </View>
                   <Text style={[styles.metricItemScore, { color: '#EF4444' }]}>
                     {overdueCount} ({overduePercent}%)
@@ -173,7 +208,7 @@ export default function AdminPanelScreen({ onSelectComplaint }) {
                 <View style={styles.metricProgressHeader}>
                   <View style={styles.metricDotRow}>
                     <View style={[styles.legendDot, { backgroundColor: '#71717A' }]} />
-                    <Text style={styles.metricItemTitle}>Problems Rejected (Invalid/Duplicate)</Text>
+                    <Text style={styles.metricItemTitle}>Rejected Complaints (Invalid / Duplicate)</Text>
                   </View>
                   <Text style={[styles.metricItemScore, { color: '#A1A1AA' }]}>
                     {rejectedCount} ({rejectedPercent}%)
@@ -189,7 +224,7 @@ export default function AdminPanelScreen({ onSelectComplaint }) {
                 <View style={styles.metricProgressHeader}>
                   <View style={styles.metricDotRow}>
                     <View style={[styles.legendDot, { backgroundColor: Colors.primary }]} />
-                    <Text style={styles.metricItemTitle}>In Progress & Review</Text>
+                    <Text style={styles.metricItemTitle}>Under Review or In Progress</Text>
                   </View>
                   <Text style={[styles.metricItemScore, { color: Colors.primary }]}>
                     {inProgressCount} ({inProgressPercent}%)
@@ -204,7 +239,9 @@ export default function AdminPanelScreen({ onSelectComplaint }) {
             {/* SLA Summary Footer */}
             <View style={styles.slaFooter}>
               <Text style={styles.slaFooterText}>
-                Average Resolution Time: <Text style={styles.slaHighlight}>{resolution.averageResolutionHours} hours</Text> ({resolution.averageResolutionDays} days)
+                {resolution.averageResolutionHours > 0
+                  ? <>Average resolution time: <Text style={styles.slaHighlight}>{resolution.averageResolutionHours} hours</Text> ({resolution.averageResolutionDays} days)</>
+                  : 'No completed reports available for resolution-time statistics.'}
               </Text>
             </View>
           </View>
@@ -265,6 +302,7 @@ export default function AdminPanelScreen({ onSelectComplaint }) {
             {displayedComplaints.length > 0 ? (
               displayedComplaints.map((item) => {
                 const statusInfo = StatusPills[item.status] || StatusPills.submitted;
+                const nextStatuses = STATUS_TRANSITIONS[item.status] || [];
                 return (
                   <View key={item._id || item.id} style={styles.complaintRowCard}>
                     <View style={styles.rowCardHeader}>
@@ -304,6 +342,34 @@ export default function AdminPanelScreen({ onSelectComplaint }) {
                         <Ionicons name="chevron-forward" size={13} color={Colors.primary} />
                       </TouchableOpacity>
                     </View>
+
+                    {(nextStatuses.length > 0 || item.status === 'in_progress') && (
+                      <View style={styles.complaintActionRow}>
+                        {nextStatuses.length > 0 && (
+                          <TouchableOpacity
+                            style={styles.complaintActionButton}
+                            onPress={() => setSelectedActionTarget(item)}
+                            activeOpacity={0.8}
+                          >
+                            <Ionicons name="git-branch-outline" size={13} color={Colors.primary} />
+                            <Text style={styles.complaintActionText}>Update Status</Text>
+                          </TouchableOpacity>
+                        )}
+                        {item.status === 'in_progress' && (
+                          <TouchableOpacity
+                            style={[styles.complaintActionButton, styles.resolveActionButton]}
+                            onPress={() => {
+                              setSelectedActionTarget(item);
+                              setShowResolveModal(true);
+                            }}
+                            activeOpacity={0.8}
+                          >
+                            <Ionicons name="checkmark-done" size={13} color="#0A0A0C" />
+                            <Text style={styles.resolveActionText}>Resolve with Proof</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
                   </View>
                 );
               })
@@ -315,18 +381,23 @@ export default function AdminPanelScreen({ onSelectComplaint }) {
           </View>
         </View>
 
-        {/* 4. Overdue Priority Escalation Radar */}
+        {/* Open reports older than the backend overdue threshold */}
         {data.recentOverdueComplaints && data.recentOverdueComplaints.length > 0 && (
           <View style={[styles.sectionCard, { borderColor: 'rgba(239, 68, 68, 0.4)' }]}>
             <View style={styles.sectionTitleRow}>
               <Ionicons name="alert-circle" size={16} color="#EF4444" />
               <Text style={[styles.sectionTitle, { color: '#EF4444' }]}>
-                Overdue Complaints Requiring Intervention ({data.recentOverdueComplaints.length})
+                Complaints open longer than 7 days ({data.recentOverdueComplaints.length})
               </Text>
             </View>
 
-            {data.recentOverdueComplaints.map((item, idx) => (
-              <View key={idx} style={styles.overdueItem}>
+            {data.recentOverdueComplaints.map((item) => (
+              <TouchableOpacity
+                key={item._id || item.id}
+                style={styles.overdueItem}
+                onPress={() => onSelectComplaint(item)}
+                activeOpacity={0.8}
+              >
                 <View style={{ flex: 1 }}>
                   <Text style={styles.overdueTitle} numberOfLines={1}>
                     {item.title}
@@ -336,44 +407,116 @@ export default function AdminPanelScreen({ onSelectComplaint }) {
                   </Text>
                 </View>
 
-                <TouchableOpacity
-                  style={styles.escalateBtn}
-                  onPress={() => handleEscalate(item)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.escalateBtnText}>Escalate</Text>
-                </TouchableOpacity>
-              </View>
+                <Ionicons name="chevron-forward" size={16} color="#EF4444" />
+              </TouchableOpacity>
             ))}
           </View>
         )}
 
-        {/* 5. User Ecosystem Overview */}
+        {/* Complaint analytics */}
         <View style={styles.sectionCard}>
           <View style={styles.sectionTitleRow}>
-            <Ionicons name="people" size={16} color={Colors.primary} />
-            <Text style={styles.sectionTitle}>Campus User Ecosystem</Text>
+            <Ionicons name="stats-chart" size={16} color={Colors.primary} />
+            <Text style={styles.sectionTitle}>Complaint Analytics</Text>
           </View>
 
-          <View style={styles.userRoleRow}>
-            <View style={styles.userRoleBox}>
-              <Text style={styles.userRoleVal}>{overview.totalStudents}</Text>
-              <Text style={styles.userRoleLbl}>Students</Text>
+          {[
+            { title: 'Category', icon: 'grid-outline', items: categoryBreakdown },
+            { title: 'Location', icon: 'location-outline', items: locationBreakdown },
+            { title: 'Severity', icon: 'alert-circle-outline', items: severityBreakdown },
+          ].map((group) => (
+            <View key={group.title} style={styles.breakdownGroup}>
+              <View style={styles.breakdownTitleRow}>
+                <Ionicons name={group.icon} size={13} color={Colors.primary} />
+                <Text style={styles.breakdownTitle}>{group.title}</Text>
+              </View>
+              {group.items.length ? group.items.map((item) => {
+                const percent = total ? Math.round((item.count / total) * 100) : 0;
+                const label = (item._id || 'other').replace(/_/g, ' ');
+                return (
+                  <View key={item._id} style={styles.breakdownRow}>
+                    <Text style={styles.breakdownLabel}>{label}</Text>
+                    <Text style={styles.breakdownValue}>{item.count} ({percent}%)</Text>
+                  </View>
+                );
+              }) : <Text style={styles.breakdownEmpty}>No data available yet.</Text>}
             </View>
-            <View style={styles.userRoleBox}>
-              <Text style={styles.userRoleVal}>{overview.totalWardens}</Text>
-              <Text style={styles.userRoleLbl}>Wardens</Text>
+          ))}
+
+          <View style={styles.breakdownGroup}>
+            <View style={styles.breakdownTitleRow}>
+              <Ionicons name="calendar-outline" size={13} color={Colors.primary} />
+              <Text style={styles.breakdownTitle}>Six-month trend</Text>
             </View>
-            <View style={styles.userRoleBox}>
-              <Text style={styles.userRoleVal}>{overview.totalInfrastructureDeans}</Text>
-              <Text style={styles.userRoleLbl}>Deans</Text>
-            </View>
-            <View style={styles.userRoleBox}>
-              <Text style={styles.userRoleVal}>{overview.totalAdmins}</Text>
-              <Text style={styles.userRoleLbl}>Admins</Text>
-            </View>
+            {monthlyTrends.length ? monthlyTrends.map((month) => {
+              const maxCount = Math.max(1, ...monthlyTrends.map((entry) => entry.complaintsCreated || 0));
+              return (
+                <View key={month.month} style={styles.trendRow}>
+                  <Text style={styles.breakdownLabel}>{month.month}</Text>
+                  <View style={styles.trendTrack}>
+                    <View style={[styles.trendCreated, { width: `${(month.complaintsCreated / maxCount) * 100}%` }]} />
+                    <View style={[styles.trendResolved, { width: `${(month.complaintsResolved / maxCount) * 100}%` }]} />
+                  </View>
+                  <Text style={styles.breakdownValue}>
+                    {month.complaintsCreated}/{month.complaintsResolved}
+                  </Text>
+                </View>
+              );
+            }) : <Text style={styles.breakdownEmpty}>No trend data available yet.</Text>}
+          </View>
+          <View style={styles.strikeSummary}>
+            <Ionicons name="shield-checkmark-outline" size={14} color={Colors.primary} />
+            <Text style={styles.breakdownLabel}>Students with image strikes</Text>
+            <Text style={styles.breakdownValue}>{imageStrikeCount ?? '—'}</Text>
           </View>
         </View>
+
+        {selectedActionTarget && !showResolveModal && (
+          <Modal
+            visible
+            transparent
+            animationType="fade"
+            onRequestClose={() => setSelectedActionTarget(null)}
+          >
+            <View style={styles.statusModalBackdrop}>
+              <View style={styles.statusModalCard}>
+                <View style={styles.statusModalHeader}>
+                  <Text style={styles.statusModalTitle}>Advance Complaint Status</Text>
+                  <TouchableOpacity onPress={() => setSelectedActionTarget(null)}>
+                    <Ionicons name="close" size={20} color={Colors.textMuted} />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.statusModalComplaint} numberOfLines={2}>
+                  {selectedActionTarget.title}
+                </Text>
+                <View style={styles.statusModalActions}>
+                  {(STATUS_TRANSITIONS[selectedActionTarget.status] || []).map((status) => (
+                    <TouchableOpacity
+                      key={status}
+                      style={[styles.statusModalButton, { borderColor: StatusPills[status].color }]}
+                      onPress={() => handleUpdateStatus(status)}
+                    >
+                      <Text style={[styles.statusModalButtonText, { color: StatusPills[status].color }]}>
+                        {StatusPills[status].label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
+        {selectedActionTarget && showResolveModal && (
+          <ResolveModal
+            visible
+            complaint={selectedActionTarget}
+            onClose={() => {
+              setShowResolveModal(false);
+              setSelectedActionTarget(null);
+            }}
+            onConfirmResolve={resolveComplaint}
+          />
+        )}
       </ScrollView>
     </View>
   );
@@ -430,25 +573,16 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     marginTop: 1,
   },
-  liveIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+  demoIndicator: {
+    backgroundColor: 'rgba(255, 193, 7, 0.12)',
+    borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
-    gap: 5,
   },
-  pulseDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#22C55E',
-  },
-  liveText: {
+  demoText: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#22C55E',
+    color: Colors.primary,
   },
   kpiGrid: {
     flexDirection: 'row',
@@ -671,6 +805,40 @@ const styles = StyleSheet.create({
     borderTopColor: '#20202A',
     paddingTop: 6,
   },
+  complaintActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: Colors.divider,
+    paddingTop: 8,
+    marginTop: 8,
+  },
+  complaintActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1A1A24',
+    borderWidth: 1,
+    borderColor: Colors.borderSubtle,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    gap: 4,
+  },
+  complaintActionText: {
+    color: Colors.primary,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  resolveActionButton: {
+    backgroundColor: '#22C55E',
+    borderColor: '#22C55E',
+  },
+  resolveActionText: {
+    color: '#0A0A0C',
+    fontSize: 10,
+    fontWeight: '800',
+  },
   rowCardMeta: {
     fontSize: 10,
     color: Colors.textMuted,
@@ -714,38 +882,123 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     marginTop: 2,
   },
-  escalateBtn: {
-    backgroundColor: '#EF4444',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
+  breakdownGroup: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.divider,
+    paddingTop: 10,
+    marginTop: 8,
+    gap: 7,
   },
-  escalateBtnText: {
+  breakdownTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  breakdownTitle: {
+    color: Colors.textPrimary,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  breakdownLabel: {
+    color: Colors.textSecondary,
+    fontSize: 10,
+    textTransform: 'capitalize',
+  },
+  breakdownValue: {
+    color: Colors.primary,
     fontSize: 10,
     fontWeight: '800',
-    color: '#0A0A0C',
   },
-  userRoleRow: {
+  breakdownEmpty: {
+    color: Colors.textMuted,
+    fontSize: 10,
+  },
+  trendRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
-  userRoleBox: {
+  trendTrack: {
     flex: 1,
-    backgroundColor: '#16161E',
-    borderRadius: 8,
-    paddingVertical: 10,
+    height: 8,
+    backgroundColor: '#24242C',
+    borderRadius: 4,
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
+  trendCreated: {
+    position: 'absolute',
+    left: 0,
+    height: '100%',
+    backgroundColor: Colors.primary,
+  },
+  trendResolved: {
+    position: 'absolute',
+    right: 0,
+    height: '100%',
+    backgroundColor: '#22C55E',
+  },
+  strikeSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderTopWidth: 1,
+    borderTopColor: Colors.divider,
+    paddingTop: 10,
+    marginTop: 10,
+  },
+  statusModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.82)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  statusModalCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: Colors.bgCardElevated,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    padding: 16,
+  },
+  statusModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  statusModalTitle: {
+    color: Colors.primary,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  statusModalComplaint: {
+    color: Colors.textPrimary,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  statusModalActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  statusModalButton: {
+    minWidth: '47%',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#262634',
+    borderRadius: 8,
+    paddingVertical: 8,
   },
-  userRoleVal: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: Colors.textPrimary,
-  },
-  userRoleLbl: {
-    fontSize: 10,
-    color: Colors.textMuted,
-    marginTop: 2,
+  statusModalButtonText: {
+    fontSize: 11,
+    fontWeight: '800',
   },
 });

@@ -42,37 +42,37 @@ export const Colors = {
 };
 
 export const LocationTypes = [
-  { id: 'all', label: 'All Zones' },
-  { id: 'boys_hostel', label: "Boys' Hostel" },
-  { id: 'girls_hostel', label: "Girls' Hostel" },
-  { id: 'campus', label: 'Campus Grounds' },
+  { id: 'all', label: 'All Zones', icon: 'apps-outline' },
+  { id: 'boys_hostel', label: "Boys' Hostel", icon: 'man' },
+  { id: 'girls_hostel', label: "Girls' Hostel", icon: 'woman' },
+  { id: 'campus', label: 'Campus Grounds', icon: 'business-outline' },
 ];
 
 export const Categories = [
-  { id: 'all', label: 'All' },
-  { id: 'electrical', label: 'Electrical' },
-  { id: 'plumbing', label: 'Plumbing' },
-  { id: 'civil', label: 'Civil Works' },
-  { id: 'cleaning', label: 'Cleaning' },
-  { id: 'furniture', label: 'Furniture' },
-  { id: 'water_supply', label: 'Water Supply' },
-  { id: 'washroom', label: 'Washrooms' },
-  { id: 'waste_management', label: 'Waste Mgmt' },
-  { id: 'garden_outdoor', label: 'Outdoor Grounds' },
-  { id: 'safety', label: 'Campus Safety' },
-  { id: 'other', label: 'Other' },
+  { id: 'all', label: 'All', icon: 'apps-outline' },
+  { id: 'electrical', label: 'Electrical', icon: 'flash-outline' },
+  { id: 'plumbing', label: 'Plumbing', icon: 'water-outline' },
+  { id: 'civil', label: 'Civil Works', icon: 'construct-outline' },
+  { id: 'cleaning', label: 'Cleaning', icon: 'sparkles-outline' },
+  { id: 'furniture', label: 'Furniture', icon: 'bed-outline' },
+  { id: 'water_supply', label: 'Water Supply', icon: 'water' },
+  { id: 'washroom', label: 'Washrooms', icon: 'business-outline' },
+  { id: 'waste_management', label: 'Waste Mgmt', icon: 'trash-outline' },
+  { id: 'garden_outdoor', label: 'Outdoor Grounds', icon: 'leaf-outline' },
+  { id: 'safety', label: 'Campus Safety', icon: 'shield-checkmark-outline' },
+  { id: 'other', label: 'Other', icon: 'ellipsis-horizontal-circle-outline' },
 ];
 
 export const SeverityLevels = [
-  { id: 'low', label: 'Low', color: '#A1A1AA' },
-  { id: 'medium', label: 'Medium', color: '#FFC107' },
-  { id: 'high', label: 'High Urgency', color: '#FFC107' },
+  { id: 'low', label: 'Low', desc: 'Minor issue', color: '#A1A1AA' },
+  { id: 'medium', label: 'Medium', desc: 'Needs attention', color: '#FFC107' },
+  { id: 'high', label: 'High Urgency', desc: 'Needs prompt action', color: '#FFC107' },
 ];
 
 export const StatusPills = {
-  submitted: { label: 'Submitted', color: '#FFC107', bg: 'rgba(255, 193, 7, 0.12)' },
-  under_review: { label: 'Under Review', color: '#FFB800', bg: 'rgba(255, 184, 0, 0.12)' },
-  in_progress: { label: 'In Progress', color: '#FFC107', bg: 'rgba(255, 193, 7, 0.12)' },
-  resolved: { label: 'Resolved', color: '#22C55E', bg: 'rgba(34, 197, 94, 0.12)' },
-  rejected: { label: 'Rejected', color: '#EF4444', bg: 'rgba(239, 68, 68, 0.12)' },
+  submitted: { label: 'Submitted', color: '#FFC107', bg: 'rgba(255, 193, 7, 0.12)', icon: 'paper-plane-outline' },
+  under_review: { label: 'Under Review', color: '#FFB800', bg: 'rgba(255, 184, 0, 0.12)', icon: 'eye-outline' },
+  in_progress: { label: 'In Progress', color: '#FFC107', bg: 'rgba(255, 193, 7, 0.12)', icon: 'construct-outline' },
+  resolved: { label: 'Resolved', color: '#22C55E', bg: 'rgba(34, 197, 94, 0.12)', icon: 'checkmark-circle-outline' },
+  rejected: { label: 'Rejected', color: '#EF4444', bg: 'rgba(239, 68, 68, 0.12)', icon: 'close-circle-outline' },
 };

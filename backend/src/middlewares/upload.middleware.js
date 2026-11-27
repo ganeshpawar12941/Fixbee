@@ -13,6 +13,7 @@ if (!fs.existsSync(uploadDirectory)) {
 const allowedMimeTypes = [
     "image/jpeg",
     "image/png",
+    "image/webp",
 ];
 
 const allowedExtensions = {

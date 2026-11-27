@@ -210,10 +210,15 @@ export const recordInvalidImageStrike = async (userId) => {
 // Check whether a user can access a complaint
 
 const canAccessComplaint = (complaint, user) => {
+    const studentId = complaint.student?._id?.toString()
+        || complaint.student?.toString();
+    const assignedManagementId = complaint.assignedManagement?._id?.toString()
+        || complaint.assignedManagement?.toString();
+
     // Student can access only their own complaints
     if (
         user.role === "student" &&
-        complaint.student.toString() === user.id
+        studentId === user.id
     ) {
         return true;
     }
@@ -226,7 +231,7 @@ const canAccessComplaint = (complaint, user) => {
     // Warden can access only complaints assigned to them
     if (
         user.role === "warden" &&
-        complaint.assignedManagement?.toString() === user.id
+        assignedManagementId === user.id
     ) {
         return true;
     }
@@ -234,7 +239,7 @@ const canAccessComplaint = (complaint, user) => {
     // Infrastructure dean can access only their assigned campus complaints
     if (
         user.role === "infrastructure_dean" &&
-        complaint.assignedManagement?.toString() === user.id &&
+        assignedManagementId === user.id &&
         complaint.locationType === "campus"
     ) {
         return true;
@@ -452,11 +457,10 @@ const getMyComplaints = async (user, page = 1, limit = 10) => {
 
     const complaints = await Complaint.find(filter)
         .select(
-            "title description locationType category imageUrl severity status createdAt updatedAt resolvedAt resolutionPhoto rejectionReason"
+            "title description locationType category imageUrl severity status createdAt updatedAt resolvedAt resolutionPhoto rejectionReason statusHistory likesCount likedBy additionalInfo assignedManagement"
         )
-        .select(
-            "title description locationType category imageUrl severity status createdAt updatedAt resolvedAt resolutionPhoto rejectionReason statusHistory"
-        )
+        .populate("assignedManagement", "name email role")
+        .populate("additionalInfo.sender", "name role")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit);
@@ -667,7 +671,10 @@ export const deleteComplaint = async (complaintId, user) => {
 
 // Get one complaint by ID
 const getComplaintById = async (complaintId, user) => {
-    const complaint = await Complaint.findById(complaintId);
+    const complaint = await Complaint.findById(complaintId)
+        .populate("student", "name profilePicture")
+        .populate("assignedManagement", "name email role")
+        .populate("additionalInfo.sender", "name role");
 
     if (!complaint || complaint.isDeleted) {
         throw new ApiError(404, "Complaint not found");
@@ -716,6 +723,9 @@ const getManagementComplaints = async (
     // Admin can see all complaints
 
     const complaints = await Complaint.find({ ...filter, isDeleted: false })
+        .populate("student", "name profilePicture")
+        .populate("assignedManagement", "name email role")
+        .populate("additionalInfo.sender", "name role")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit);

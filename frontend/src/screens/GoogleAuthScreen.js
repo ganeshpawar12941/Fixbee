@@ -1,185 +1,137 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
+  Platform,
+  ScrollView,
   StyleSheet,
   Text,
   View,
-  TouchableOpacity,
   Image,
-  Modal,
-  ActivityIndicator,
-  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
-import { useAuth, PRESET_USERS } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
+import GoogleSignInButton from '../components/GoogleSignInButton';
 
 export default function GoogleAuthScreen() {
   const { signInWithGoogle, isLoading } = useAuth();
-  const [showAccountChooser, setShowAccountChooser] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const pulse = useRef(new Animated.Value(0)).current;
 
-  const handleGoogleClick = () => {
-    // Opens official Google account selector modal
-    setErrorMsg('');
-    setShowAccountChooser(true);
-  };
+  const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+  const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+  const androidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+  const expoClientId = process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID;
+  const hasGoogleConfiguration = Platform.OS === 'web'
+    ? Boolean(webClientId)
+    : Boolean(webClientId && (Platform.OS !== 'ios' || iosClientId));
 
-  const handleSelectAccount = async (preset) => {
-    setShowAccountChooser(false);
-    setAuthenticating(true);
-    setErrorMsg('');
-    try {
-      const res = await signInWithGoogle(preset);
-      if (!res.success) {
-        setErrorMsg(res.error || 'Google Authentication failed. Please try again.');
-      }
-    } catch (err) {
-      setErrorMsg(err.message || 'Google Sign-In failed');
-    } finally {
-      setAuthenticating(false);
-    }
-  };
+  const handleGoogleSignIn = useCallback(
+    (idToken) => signInWithGoogle(idToken),
+    [signInWithGoogle]
+  );
 
-  const getRoleBadge = (role) => {
-    switch (role) {
-      case 'warden':
-        return { label: 'Hostel Warden', color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.15)' };
-      case 'infrastructure_dean':
-        return { label: 'Dean Infra', color: '#A855F7', bg: 'rgba(168, 85, 247, 0.15)' };
-      case 'admin':
-        return { label: 'Campus Admin', color: '#EF4444', bg: 'rgba(239, 68, 68, 0.15)' };
-      default:
-        return { label: 'Student', color: '#38BDF8', bg: 'rgba(56, 189, 248, 0.15)' };
-    }
-  };
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 1400,
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 1400,
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [pulse]);
+
+  const logoScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.035] });
+  const setupError = !hasGoogleConfiguration
+    ? 'Google sign-in is not configured for this app. Please contact your campus administrator.'
+    : '';
+  const logoOpacity = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.96, 1],
+  });
 
   return (
     <View style={styles.container}>
-      {/* Background ambient lighting */}
       <View style={styles.ambientTop} />
       <View style={styles.ambientBottom} />
 
-      <View style={styles.contentCard}>
-        {/* FixBee Brand Logo */}
-        <View style={styles.logoSection}>
-          <View style={styles.logoCircle}>
-            <Image
-              source={require('../../assets/fixbee_logo.jpg')}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
-          </View>
-          <View style={styles.appNameRow}>
-            <Text style={styles.brandTitleFix}>Fix</Text>
-            <Text style={styles.brandTitleBee}>bee</Text>
-          </View>
-          <Text style={styles.tagline}>buzz it • fix it</Text>
-        </View>
-
-        {/* Headline & Campus Portal Description */}
-        <View style={styles.infoSection}>
-          <Text style={styles.welcomeHeadline}>Campus Service Portal</Text>
-          <Text style={styles.welcomeDescription}>
-            Sign in with your authorized college Google account to report campus issues, track repair SLAs, and manage facilities.
-          </Text>
-        </View>
-
-        {errorMsg ? (
-          <View style={styles.errorBanner}>
-            <Ionicons name="alert-circle" size={15} color={Colors.accentDanger} />
-            <Text style={styles.errorText}>{errorMsg}</Text>
-          </View>
-        ) : null}
-
-        {/* ONLY Login Through Google Button */}
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={styles.googleButton}
-            onPress={handleGoogleClick}
-            disabled={authenticating || isLoading}
-            activeOpacity={0.88}
-          >
-            {authenticating || isLoading ? (
-              <ActivityIndicator size="small" color="#0A0A0C" />
-            ) : (
-              <View style={styles.googleBtnInner}>
-                <View style={styles.googleGContainer}>
-                  <Ionicons name="logo-google" size={20} color="#EA4335" />
-                </View>
-                <Text style={styles.googleBtnText}>Continue with Google</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-
-          <Text style={styles.campusDomainNote}>
-            Use your official <Text style={styles.highlightText}>@campus.edu</Text> Google email
-          </Text>
-        </View>
-
-        {/* Security Badge Footer */}
-        <View style={styles.securityFooter}>
-          <Ionicons name="shield-checkmark" size={14} color="#22C55E" />
-          <Text style={styles.securityText}>Verified Google OAuth 2.0 Security</Text>
-        </View>
-      </View>
-
-      {/* Google Account Selector Dialog */}
-      <Modal
-        visible={showAccountChooser}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowAccountChooser(false)}
+      <ScrollView
+        style={styles.loginScroll}
+        contentContainerStyle={styles.loginScrollContent}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.accountCard}>
-            <View style={styles.modalHeaderRow}>
-              <View style={styles.gLogoRow}>
-                <Ionicons name="logo-google" size={18} color="#EA4335" />
-                <Text style={styles.modalHeaderTitle}>Choose a Google Account</Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setShowAccountChooser(false)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="close" size={20} color={Colors.textMuted} />
-              </TouchableOpacity>
+        <View style={styles.contentCard}>
+          <View style={styles.logoSection}>
+            <Animated.View
+              style={[
+                styles.logoCircle,
+                { transform: [{ scale: logoScale }], opacity: logoOpacity },
+              ]}
+            >
+              <Image
+                source={require('../../assets/fixbee_bee_logo.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
+            </Animated.View>
+            <View style={styles.appNameRow}>
+              <Text style={styles.brandTitleFix}>Fix</Text>
+              <Text style={styles.brandTitleBee}>bee</Text>
             </View>
+            <Text style={styles.tagline}>buzz it • fix it</Text>
+          </View>
 
-            <Text style={styles.modalHeaderSub}>
-              to continue to <Text style={{ color: Colors.primary, fontWeight: '800' }}>FixBee Campus</Text>
+          <View style={styles.infoSection}>
+            <Text style={styles.welcomeHeadline}>Campus Service Portal</Text>
+            <Text style={styles.welcomeDescription}>
+              Sign in with an authorized college Google account to report campus issues and track repairs.
             </Text>
+          </View>
 
-            <View style={styles.accountList}>
-              {PRESET_USERS.map((preset) => {
-                const badge = getRoleBadge(preset.role);
-                return (
-                  <TouchableOpacity
-                    key={preset.id}
-                    style={styles.accountItem}
-                    onPress={() => handleSelectAccount(preset)}
-                    activeOpacity={0.7}
-                  >
-                    <Image source={{ uri: preset.profilePicture }} style={styles.accountAvatar} />
-                    <View style={styles.accountDetails}>
-                      <View style={styles.accountNameRow}>
-                        <Text style={styles.accountName}>{preset.name}</Text>
-                        <View style={[styles.roleTag, { backgroundColor: badge.bg }]}>
-                          <Text style={[styles.roleTagText, { color: badge.color }]}>
-                            {badge.label}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={styles.accountEmail}>{preset.email}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
-                  </TouchableOpacity>
-                );
-              })}
+          {errorMsg || setupError ? (
+            <View style={styles.errorBanner} accessibilityRole="alert">
+              <Ionicons name="alert-circle" size={15} color={Colors.accentDanger} />
+              <Text style={styles.errorText}>{errorMsg || setupError}</Text>
             </View>
+          ) : null}
+
+          <View style={styles.buttonContainer}>
+            <GoogleSignInButton
+              oauthConfig={{
+                clientId: expoClientId,
+                webClientId,
+                iosClientId,
+                androidClientId,
+              }}
+              configured={hasGoogleConfiguration}
+              disabled={authenticating || isLoading}
+              onSignIn={handleGoogleSignIn}
+              onBusyChange={setAuthenticating}
+              onError={setErrorMsg}
+              styles={styles}
+            />
+
+            <Text style={styles.campusDomainNote}>
+              Authorized college account required
+            </Text>
+          </View>
+
+          <View style={styles.securityFooter}>
+            <Ionicons name="shield-checkmark" size={14} color="#22C55E" />
+            <Text style={styles.securityText}>Secure Google authentication</Text>
           </View>
         </View>
-      </Modal>
+      </ScrollView>
     </View>
   );
 }
@@ -187,12 +139,24 @@ export default function GoogleAuthScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    width: '100%',
+    alignSelf: 'stretch',
     backgroundColor: Colors.bgDark,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
     position: 'relative',
     overflow: 'hidden',
+  },
+  loginScroll: {
+    flex: 1,
+    width: '100%',
+  },
+  loginScrollContent: {
+    flexGrow: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 24,
   },
   ambientTop: {
     position: 'absolute',
@@ -215,12 +179,13 @@ const styles = StyleSheet.create({
   contentCard: {
     width: '100%',
     maxWidth: 390,
+    alignSelf: 'center',
     backgroundColor: Colors.bgCard,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: Colors.borderSubtle,
-    paddingVertical: 32,
-    paddingHorizontal: 24,
+    paddingVertical: 28,
+    paddingHorizontal: 20,
     alignItems: 'center',
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 10 },
@@ -288,10 +253,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   welcomeDescription: {
-    fontSize: 12,
+    fontSize: 13,
     color: Colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 20,
     paddingHorizontal: 8,
   },
   errorBanner: {
@@ -308,7 +273,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   errorText: {
-    fontSize: 11,
+    fontSize: 12,
     color: Colors.accentDanger,
     fontWeight: '600',
     flex: 1,
@@ -331,11 +296,15 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  buttonDisabled: {
+    opacity: 0.65,
+  },
   googleBtnInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
+    flexWrap: 'wrap',
   },
   googleGContainer: {
     width: 24,
@@ -348,16 +317,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1F1F1F',
     letterSpacing: -0.2,
+    textAlign: 'center',
+    flexShrink: 1,
   },
   campusDomainNote: {
     fontSize: 11,
     color: Colors.textMuted,
     marginTop: 10,
     textAlign: 'center',
-  },
-  highlightText: {
-    color: Colors.primary,
-    fontWeight: '700',
   },
   securityFooter: {
     flexDirection: 'row',
@@ -370,92 +337,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   securityText: {
-    fontSize: 10,
+    fontSize: 11,
     color: Colors.textMuted,
     fontWeight: '600',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.82)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  accountCard: {
-    width: '100%',
-    maxWidth: 380,
-    backgroundColor: Colors.bgCardElevated,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    padding: 18,
-  },
-  modalHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  gLogoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  modalHeaderTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-  },
-  modalHeaderSub: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    marginBottom: 14,
-  },
-  accountList: {
-    gap: 8,
-  },
-  accountItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#161620',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#242432',
-    padding: 10,
-    gap: 10,
-  },
-  accountAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: Colors.primary,
-  },
-  accountDetails: {
-    flex: 1,
-  },
-  accountNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 2,
-  },
-  accountName: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-  },
-  roleTag: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  roleTagText: {
-    fontSize: 9,
-    fontWeight: '800',
-  },
-  accountEmail: {
-    fontSize: 11,
-    color: Colors.textMuted,
   },
 });

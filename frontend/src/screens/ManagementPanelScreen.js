@@ -5,8 +5,6 @@ import {
   View,
   ScrollView,
   TouchableOpacity,
-  TextInput,
-  Image,
   Modal,
   Alert,
   RefreshControl,
@@ -21,9 +19,10 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
   const { user } = useAuth();
   const {
     complaints,
+    getManagementDashboardData,
     updateComplaintStatus,
     resolveComplaint,
-    checkBackend,
+    refreshLocalData,
   } = useComplaints();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -32,31 +31,28 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
   const [subZoneFilter, setSubZoneFilter] = useState('all'); // For warden: 'all' | 'boys_hostel' | 'girls_hostel'
   const [selectedActionTarget, setSelectedActionTarget] = useState(null);
   const [actionType, setActionType] = useState('status'); // 'status' | 'resolve'
-  const [remarks, setRemarks] = useState('');
 
   const isWarden = user?.role === 'warden';
   const isDean = user?.role === 'infrastructure_dean';
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await checkBackend();
-    setTimeout(() => setRefreshing(false), 600);
+    try {
+      await refreshLocalData();
+    } catch (error) {
+      Alert.alert('Unable to refresh', error.message || 'Please try again.');
+    } finally {
+      setRefreshing(false);
+    }
   };
 
-  // 1. Strict Role-Specific Location Filtering:
-  // - Warden gets ALL and ONLY hostel complaints (Boys' and Girls' hostels)
-  // - Infrastructure Dean gets ALL campus buildings and facilities, EXCLUDING all hostels!
+  const dashboard = getManagementDashboardData();
+  const dashboardStats = dashboard.statistics;
+  const currentUserId = user?._id || user?.id;
   const scopedComplaints = complaints.filter((c) => {
-    if (isWarden) {
-      // ONLY hostels
-      return c.locationType === 'boys_hostel' || c.locationType === 'girls_hostel';
-    }
-    if (isDean) {
-      // ALL campus buildings, EXCLUDING hostels
-      return c.locationType === 'campus';
-    }
-    // Admin or others
-    return true;
+    if (user?.role === 'admin') return true;
+    const assignedTo = c.assignedManagement?._id || c.assignedManagement?.id || c.assignedManagement;
+    return Boolean(currentUserId && assignedTo === currentUserId);
   });
 
   // 2. Status & Sub-zone filtering
@@ -73,57 +69,54 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
   });
 
   // Calculate stats for this manager's specific jurisdiction
-  const totalAssigned = scopedComplaints.length;
-  const newSubmitted = scopedComplaints.filter((c) => c.status === 'submitted').length;
-  const underReview = scopedComplaints.filter((c) => c.status === 'under_review').length;
-  const inProgress = scopedComplaints.filter((c) => c.status === 'in_progress').length;
-  const resolved = scopedComplaints.filter((c) => c.status === 'resolved').length;
-  const rejected = scopedComplaints.filter((c) => c.status === 'rejected').length;
+  const totalAssigned = dashboardStats.totalComplaints;
+  const newSubmitted = dashboardStats.submitted;
+  const underReview = dashboardStats.underReview;
+  const inProgress = dashboardStats.inProgress;
+  const resolved = dashboardStats.resolved;
+  const rejected = dashboardStats.rejected;
 
   // Analytics calculations
   const totalSafe = Math.max(totalAssigned, 1);
   const activePipeline = newSubmitted + underReview + inProgress;
-  const overdueCutoff = Date.now() - 24 * 60 * 60 * 1000;
-  const overdueList = scopedComplaints.filter(
-    (c) =>
-      ['submitted', 'under_review', 'in_progress'].includes(c.status) &&
-      new Date(c.createdAt).getTime() < overdueCutoff
-  );
-  const overdueCount = overdueList.length;
-
   const solvedPct = Math.round((resolved / totalSafe) * 100);
   const activePct = Math.round((activePipeline / totalSafe) * 100);
-  const overduePct = Math.round((overdueCount / totalSafe) * 100);
   const rejectedPct = Math.round((rejected / totalSafe) * 100);
 
   // Category Breakdown
-  const catMap = {};
-  scopedComplaints.forEach((c) => {
-    const key = c.category || 'other';
-    catMap[key] = (catMap[key] || 0) + 1;
-  });
-  const categoryBreakdown = Object.entries(catMap)
-    .map(([id, count]) => ({ id, count }))
+  const categoryBreakdown = (dashboard.categoryBreakdown || [])
+    .map((item) => ({ id: item._id, count: item.count }))
     .sort((a, b) => b.count - a.count);
 
   // Severity Breakdown
-  const highCount = scopedComplaints.filter((c) => c.severity === 'high').length;
-  const mediumCount = scopedComplaints.filter((c) => c.severity === 'medium').length;
-  const lowCount = scopedComplaints.filter((c) => c.severity === 'low').length;
+  const severityCounts = new Map((dashboard.severityBreakdown || []).map((item) => [item._id, item.count]));
+  const highCount = severityCounts.get('high') || 0;
+  const mediumCount = severityCounts.get('medium') || 0;
+  const lowCount = severityCounts.get('low') || 0;
 
   // Warden Hostel Split
   const boysHostelCount = scopedComplaints.filter((c) => c.locationType === 'boys_hostel').length;
   const girlsHostelCount = scopedComplaints.filter((c) => c.locationType === 'girls_hostel').length;
 
+  const allowedNextStatuses = {
+    submitted: ['under_review', 'rejected'],
+    under_review: ['in_progress', 'rejected'],
+    in_progress: [],
+    resolved: [],
+    rejected: [],
+  };
+
   const handleUpdateStatus = async (newStatus) => {
     if (!selectedActionTarget) return;
-    await updateComplaintStatus(
-      selectedActionTarget._id || selectedActionTarget.id,
-      newStatus,
-      remarks || `Status updated to ${newStatus} by ${user?.name || 'Management'}`
-    );
-    setRemarks('');
-    setSelectedActionTarget(null);
+    try {
+      await updateComplaintStatus(
+        selectedActionTarget._id || selectedActionTarget.id,
+        newStatus
+      );
+      setSelectedActionTarget(null);
+    } catch (error) {
+      Alert.alert('Status Update Failed', error.message || 'Unable to update complaint status.');
+    }
   };
 
   return (
@@ -173,10 +166,10 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
             />
             <Text style={[styles.jurisdictionText, { color: Colors.primary }]}>
               {isDean
-                ? 'Jurisdiction: Academic & Campus Buildings (Excluding Hostels)'
+                ? 'Assigned campus and academic infrastructure complaints'
                 : isWarden
-                ? "Jurisdiction: Student Hostels (Boys' & Girls' Blocks Only)"
-                : 'All Facilities'}
+                ? 'Hostel complaints assigned to your account'
+                : 'Assigned facilities'}
             </Text>
           </View>
 
@@ -204,7 +197,7 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
           </View>
         </View>
 
-        {/* Segmented Mode Toggle: Tickets Queue vs Data & Analytics */}
+        {/* Segmented Mode Toggle: Complaint Queue vs Data & Analytics */}
         <View style={styles.modeToggleRow}>
           <TouchableOpacity
             style={[styles.modeToggleBtn, viewMode === 'tickets' && styles.modeToggleBtnActive]}
@@ -217,7 +210,7 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
               color={viewMode === 'tickets' ? '#0A0A0C' : Colors.textSecondary}
             />
             <Text style={[styles.modeToggleText, viewMode === 'tickets' && styles.modeToggleTextActive]}>
-              Tickets Queue ({totalAssigned})
+              Complaint Queue ({totalAssigned})
             </Text>
           </TouchableOpacity>
 
@@ -243,14 +236,13 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
             <View style={styles.analyticsCard}>
               <View style={styles.analyticsHeaderRow}>
                 <Ionicons name="pie-chart" size={16} color={Colors.primary} />
-                <Text style={styles.analyticsCardTitle}>Resolution &amp; SLA Performance</Text>
+                <Text style={styles.analyticsCardTitle}>Status Overview</Text>
               </View>
 
               {/* Stacked Comparative Bar */}
               <View style={styles.stackedBar}>
                 <View style={[styles.stackedSegment, { flex: Math.max(resolved, 0.05), backgroundColor: '#22C55E' }]} />
                 <View style={[styles.stackedSegment, { flex: Math.max(activePipeline, 0.05), backgroundColor: Colors.primary }]} />
-                <View style={[styles.stackedSegment, { flex: Math.max(overdueCount, 0.05), backgroundColor: '#EF4444' }]} />
                 <View style={[styles.stackedSegment, { flex: Math.max(rejected, 0.05), backgroundColor: '#71717A' }]} />
               </View>
 
@@ -273,16 +265,6 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
                   </View>
                   <View style={styles.barTrack}>
                     <View style={[styles.barFill, { width: `${activePct}%`, backgroundColor: Colors.primary }]} />
-                  </View>
-                </View>
-
-                <View style={styles.metricBarRow}>
-                  <View style={styles.metricBarHeader}>
-                    <Text style={styles.metricBarLabel}>Overdue (&gt;24h SLA)</Text>
-                    <Text style={[styles.metricBarVal, { color: '#EF4444' }]}>{overdueCount} ({overduePct}%)</Text>
-                  </View>
-                  <View style={styles.barTrack}>
-                    <View style={[styles.barFill, { width: `${overduePct}%`, backgroundColor: '#EF4444' }]} />
                   </View>
                 </View>
 
@@ -377,34 +359,6 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
               </View>
             )}
 
-            {/* 5. Overdue Escalation List */}
-            {overdueList.length > 0 && (
-              <View style={[styles.analyticsCard, { borderColor: 'rgba(239, 68, 68, 0.45)' }]}>
-                <View style={styles.analyticsHeaderRow}>
-                  <Ionicons name="warning" size={16} color="#EF4444" />
-                  <Text style={[styles.analyticsCardTitle, { color: '#EF4444' }]}>
-                    Overdue Tickets (&gt;24h) — Action Needed
-                  </Text>
-                </View>
-
-                {overdueList.map((item) => (
-                  <TouchableOpacity
-                    key={item._id || item.id}
-                    style={styles.overdueRow}
-                    onPress={() => onSelectComplaint(item)}
-                    activeOpacity={0.8}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.overdueRowTitle} numberOfLines={1}>{item.title}</Text>
-                      <Text style={styles.overdueRowMeta}>
-                        {item.category?.toUpperCase()} • Status: {item.status.replace('_', ' ')}
-                      </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color="#EF4444" />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
           </View>
         ) : (
           <>
@@ -451,6 +405,7 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
             { id: 'under_review', label: `Under Review (${underReview})` },
             { id: 'in_progress', label: `In Progress (${inProgress})` },
             { id: 'resolved', label: `Resolved (${resolved})` },
+            { id: 'rejected', label: `Rejected (${rejected})` },
           ].map((tab) => {
             const isSelected = activeStatusFilter === tab.id;
             return (
@@ -514,21 +469,37 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
                     <Text style={styles.ticketUpvotes}>▲ {item.likesCount || 0} Upvotes</Text>
                   </View>
 
+                  <TouchableOpacity
+                    style={styles.additionalInfoAction}
+                    onPress={() => onSelectComplaint(item)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="information-circle-outline" size={14} color={Colors.primary} />
+                    <Text style={styles.additionalInfoActionText}>
+                      {item.additionalInfo?.length
+                        ? `Additional Information (${item.additionalInfo.length})`
+                        : 'Add Additional Information'}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={13} color={Colors.primary} />
+                  </TouchableOpacity>
+
                   {/* Management Action Bar */}
                   <View style={styles.ticketActionRow}>
-                    <TouchableOpacity
-                      style={styles.actionBtnSecondary}
-                      onPress={() => {
-                        setSelectedActionTarget(item);
-                        setActionType('status');
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="git-branch-outline" size={13} color={Colors.primary} />
-                      <Text style={styles.actionBtnSecondaryText}>Update Status</Text>
-                    </TouchableOpacity>
+                    {(allowedNextStatuses[item.status] || []).length > 0 && (
+                      <TouchableOpacity
+                        style={styles.actionBtnSecondary}
+                        onPress={() => {
+                          setSelectedActionTarget(item);
+                          setActionType('status');
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="git-branch-outline" size={13} color={Colors.primary} />
+                        <Text style={styles.actionBtnSecondaryText}>Update Status</Text>
+                      </TouchableOpacity>
+                    )}
 
-                    {item.status !== 'resolved' && (
+                    {item.status === 'in_progress' && (
                       <TouchableOpacity
                         style={styles.actionBtnResolve}
                         onPress={() => {
@@ -542,14 +513,6 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
                       </TouchableOpacity>
                     )}
 
-                    <TouchableOpacity
-                      style={styles.actionBtnDiscuss}
-                      onPress={() => onSelectComplaint(item)}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="chatbubbles-outline" size={14} color={Colors.textSecondary} />
-                      <Text style={styles.discussCountText}>{item.additionalInfo?.length || 0}</Text>
-                    </TouchableOpacity>
                   </View>
                 </View>
               );
@@ -608,39 +571,21 @@ export default function ManagementPanelScreen({ onSelectComplaint }) {
                   {selectedActionTarget.title}
                 </Text>
 
-                <View>
-                  <Text style={styles.modalFieldLabel}>Official Action Remarks (Dispatched details)</Text>
-                  <TextInput
-                    style={[styles.modalInput, styles.modalTextArea]}
-                    placeholder="e.g. Electrician team dispatched, circuit isolated..."
-                    placeholderTextColor={Colors.textMuted}
-                    value={remarks}
-                    onChangeText={setRemarks}
-                    multiline
-                  />
-
-                  <View style={styles.modalStatusButtonsRow}>
-                    <TouchableOpacity
-                      style={[styles.mStatusBtn, { borderColor: Colors.primary }]}
-                      onPress={() => handleUpdateStatus('under_review')}
-                    >
-                      <Text style={[styles.mStatusBtnText, { color: Colors.primary }]}>Under Review</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.mStatusBtn, { borderColor: Colors.primary }]}
-                      onPress={() => handleUpdateStatus('in_progress')}
-                    >
-                      <Text style={[styles.mStatusBtnText, { color: Colors.primary }]}>In Progress</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.mStatusBtn, { borderColor: '#EF4444' }]}
-                      onPress={() => handleUpdateStatus('rejected')}
-                    >
-                      <Text style={[styles.mStatusBtnText, { color: '#EF4444' }]}>Reject</Text>
-                    </TouchableOpacity>
-                  </View>
+                <View style={styles.modalStatusButtonsRow}>
+                  {(allowedNextStatuses[selectedActionTarget.status] || []).map((status) => {
+                    const statusInfo = StatusPills[status];
+                    return (
+                      <TouchableOpacity
+                        key={status}
+                        style={[styles.mStatusBtn, { borderColor: statusInfo.color }]}
+                        onPress={() => handleUpdateStatus(status)}
+                      >
+                        <Text style={[styles.mStatusBtnText, { color: statusInfo.color }]}>
+                          {statusInfo.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               </View>
             </View>
@@ -870,6 +815,18 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: Colors.primary,
   },
+  additionalInfoAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 9,
+  },
+  additionalInfoActionText: {
+    flex: 1,
+    color: Colors.primary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   ticketActionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -907,21 +864,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: '#0A0A0C',
-  },
-  actionBtnDiscuss: {
-    marginLeft: 'auto',
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#181822',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    gap: 4,
-  },
-  discussCountText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: Colors.textSecondary,
   },
   emptyContainer: {
     alignItems: 'center',
@@ -977,41 +919,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.textPrimary,
     marginBottom: 10,
-  },
-  modalFieldLabel: {
-    fontSize: 11,
-    color: Colors.textSecondary,
-    marginBottom: 5,
-    fontWeight: '600',
-  },
-  modalInput: {
-    backgroundColor: Colors.bgInput,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.borderSubtle,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 12,
-    color: Colors.textPrimary,
-    marginBottom: 12,
-  },
-  modalTextArea: {
-    minHeight: 55,
-    textAlignVertical: 'top',
-  },
-  confirmResolveBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#22C55E',
-    borderRadius: 8,
-    paddingVertical: 10,
-    gap: 6,
-  },
-  confirmResolveBtnText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#0A0A0C',
   },
   modalStatusButtonsRow: {
     flexDirection: 'row',
@@ -1148,27 +1055,6 @@ const styles = StyleSheet.create({
   severityLbl: {
     fontSize: 10,
     fontWeight: '600',
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  overdueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#181418',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.25)',
-    padding: 10,
-    marginBottom: 8,
-    gap: 8,
-  },
-  overdueRowTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  overdueRowMeta: {
-    fontSize: 10,
     color: Colors.textMuted,
     marginTop: 2,
   },

@@ -4,12 +4,15 @@ import {
     getMyNotifications,
     markNotificationAsRead,
     markAllNotificationsAsRead,
+    registerPushToken,
+    unregisterPushToken,
 } from "../services/notification.service.js";
 
 // Get logged-in user's notifications
 export const getMyNotificationsController = asyncHandler(
     async (req, res) => {
         const page = Math.max(1, parseInt(req.query.page) || 1);
+
         const limit = Math.min(
             50,
             Math.max(1, parseInt(req.query.limit) || 20)
@@ -53,6 +56,34 @@ export const markAllNotificationsAsReadController = asyncHandler(
         return res.status(200).json({
             success: true,
             message: "All notifications marked as read",
+        });
+    }
+);
+
+// Register device push token
+export const registerPushTokenController = asyncHandler(
+    async (req, res) => {
+        const { token } = req.body;
+
+        await registerPushToken(req.user.id, token);
+
+        return res.status(200).json({
+            success: true,
+            message: "Push token registered successfully",
+        });
+    }
+);
+
+// Unregister device push token
+export const unregisterPushTokenController = asyncHandler(
+    async (req, res) => {
+        const { token } = req.body;
+
+        await unregisterPushToken(req.user.id, token);
+
+        return res.status(200).json({
+            success: true,
+            message: "Push token removed successfully",
         });
     }
 );

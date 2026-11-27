@@ -12,7 +12,11 @@ const env = {
   MONGO_URI: process.env.MONGO_URI || "mongodb://localhost:27017/fixbee",
 
   // CORS
-  CORS_ORIGIN: process.env.CORS_ORIGIN || "http://localhost:3000",
+  CORS_ORIGIN: process.env.CORS_ORIGIN || "http://localhost:8081",
+  CORS_ORIGINS: (process.env.CORS_ORIGIN || "http://localhost:8081")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 
   // Logging
   LOG_LEVEL: process.env.LOG_LEVEL || "info",
@@ -22,6 +26,15 @@ const env = {
   isProd: process.env.NODE_ENV === "production",
 
   googleClientId: process.env.GOOGLE_CLIENT_ID,
+  googleClientIds: [
+    process.env.GOOGLE_CLIENT_IDS,
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_WEB_CLIENT_ID,
+    process.env.GOOGLE_IOS_CLIENT_ID,
+    process.env.GOOGLE_ANDROID_CLIENT_ID,
+    process.env.GOOGLE_EXPO_CLIENT_ID,
+  ].filter(Boolean).flatMap((value) => value.split(",")).map((value) => value.trim()).filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index),
   collegeEmailDomain: process.env.COLLEGE_EMAIL_DOMAIN || "students.git.edu",
   jwtAccessSecret: process.env.JWT_ACCESS_SECRET,
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET,

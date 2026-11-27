@@ -7,7 +7,6 @@ import {
   Image,
   Animated,
   Alert,
-  Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, StatusPills } from '../theme/colors';
@@ -18,7 +17,6 @@ export default function ComplaintCard({
   onSelect,
   currentUser,
   onDelete,
-  onStatusChange,
 }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const [showDescription, setShowDescription] = useState(false);
@@ -31,10 +29,6 @@ export default function ComplaintCard({
     (currentUser &&
       (complaint.student?._id || complaint.student?.id) ===
         (currentUser._id || currentUser.id));
-  const isManagement = ['warden', 'infrastructure_dean', 'admin'].includes(
-    currentUser?.role
-  );
-
   const statusInfo = StatusPills[complaint.status] || StatusPills.submitted;
 
   const handleLikePress = () => {
@@ -42,15 +36,9 @@ export default function ComplaintCard({
       Animated.timing(scaleAnim, { toValue: 1.3, duration: 90, useNativeDriver: true }),
       Animated.timing(scaleAnim, { toValue: 1, duration: 110, useNativeDriver: true }),
     ]).start();
-    onLike(complaint._id || complaint.id);
-  };
-
-  const handleShare = async () => {
-    try {
-      await Share.share({
-        message: `FixBee: ${complaint.title}\nStatus: ${statusInfo.label} | Category: ${complaint.category}\nView in FixBee Campus App!`,
-      });
-    } catch {}
+    Promise.resolve(onLike(complaint._id || complaint.id)).catch((error) => {
+      Alert.alert('Unable to update vote', error.message || 'Please try again.');
+    });
   };
 
   const handleDelete = () => {
@@ -62,7 +50,13 @@ export default function ComplaintCard({
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => onDelete && onDelete(complaint._id || complaint.id),
+          onPress: async () => {
+            try {
+              await onDelete?.(complaint._id || complaint.id);
+            } catch (error) {
+              Alert.alert('Unable to delete complaint', error.message || 'Please try again.');
+            }
+          },
         },
       ]
     );
@@ -188,29 +182,8 @@ export default function ComplaintCard({
           </Text>
         </TouchableOpacity>
 
-        {/* Comments Count */}
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={() => onSelect(complaint)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="chatbubble-outline" size={15} color={Colors.textSecondary} />
-          <Text style={styles.actionBtnText}>
-            {complaint.additionalInfo?.length || 0}
-          </Text>
-        </TouchableOpacity>
-
-        {/* Share Button */}
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={handleShare}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="share-social-outline" size={15} color={Colors.textSecondary} />
-        </TouchableOpacity>
-
         {/* Owner Delete Button */}
-        {isOwner && (
+        {isOwner && complaint.status === 'submitted' && (
           <TouchableOpacity
             style={styles.actionBtn}
             onPress={handleDelete}
@@ -220,16 +193,6 @@ export default function ComplaintCard({
           </TouchableOpacity>
         )}
 
-        {/* Management Quick Status Button */}
-        {isManagement && (
-          <TouchableOpacity
-            style={styles.manageBtn}
-            onPress={() => onStatusChange && onStatusChange(complaint)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.manageBtnText}>Manage</Text>
-          </TouchableOpacity>
-        )}
       </View>
     </View>
   );
@@ -399,22 +362,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.borderSubtle,
     gap: 4,
-  },
-  actionBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-  },
-  manageBtn: {
-    marginLeft: 'auto',
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  manageBtnText: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#0A0A0C',
   },
 });

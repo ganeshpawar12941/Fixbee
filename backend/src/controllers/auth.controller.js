@@ -30,19 +30,19 @@ const googleLogin = asyncHandler(async (req, res) => {
     });
 
     return res.status(200).json(
-        new ApiResponse(200, "Login successful", {
+        new ApiResponse(200, {
             user,
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
-        })
+        }, "Login successful")
     );
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
     return res.status(200).json(
-        new ApiResponse(200, "User profile retrieved successfully", {
+        new ApiResponse(200, {
             user: req.user,
-        })
+        }, "User profile retrieved successfully")
     );
 });
 
@@ -89,10 +89,10 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     await user.save();
 
     return res.status(200).json(
-        new ApiResponse(200, "Token refreshed successfully", {
+        new ApiResponse(200, {
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
-        })
+        }, "Token refreshed successfully")
     );
 });
 
@@ -104,7 +104,7 @@ const logout = asyncHandler(async (req, res) => {
     });
 
     return res.status(200).json(
-        new ApiResponse(200, "Logout successful", null)
+        new ApiResponse(200, null, "Logout successful")
     );
 });
 

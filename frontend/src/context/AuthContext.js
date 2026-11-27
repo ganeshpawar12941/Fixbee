@@ -1,54 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { apiService } from '../config/api';
 
 const AuthContext = createContext({});
-
-export const PRESET_USERS = [
-  {
-    id: 'usr_student_01',
-    _id: '670000000000000000000001',
-    name: 'Alex Johnson',
-    email: 'alex.j@campus.edu',
-    role: 'student',
-    profilePicture: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    department: 'Computer Science & Eng',
-    room: 'Hostel Block B - Room 304',
-    strikes: 0,
-    monthlyLimit: 10,
-    submittedThisMonth: 3,
-  },
-  {
-    id: 'usr_warden_01',
-    _id: '670000000000000000000002',
-    name: 'Major Rajesh Verma',
-    email: 'warden.verma@campus.edu',
-    role: 'warden',
-    profilePicture: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-    department: 'Chief Hostel Warden',
-    jurisdiction: "Boys' & Girls' Hostels",
-  },
-  {
-    id: 'usr_dean_01',
-    _id: '670000000000000000000003',
-    name: 'Dr. Sunita Deshmukh',
-    email: 'dean.infra@campus.edu',
-    role: 'infrastructure_dean',
-    profilePicture: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
-    department: 'Dean of Infrastructure & Works',
-    jurisdiction: 'Entire Campus Facilities',
-  },
-  {
-    id: 'usr_admin_01',
-    _id: '670000000000000000000004',
-    name: 'R. K. Saxena (Admin)',
-    email: 'admin.fixbee@campus.edu',
-    role: 'admin',
-    profilePicture: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
-    department: 'FixBee Campus Administrator',
-    jurisdiction: 'Full System Access',
-  },
-];
+const isSignedAccessToken = (value) => (
+  typeof value === 'string' && value.split('.').length === 3
+);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -70,17 +28,41 @@ export const AuthProvider = ({ children }) => {
       const storedUser = await AsyncStorage.getItem('@fixbee_user');
       const storedToken = await AsyncStorage.getItem('@fixbee_token');
 
-      if (storedUser && storedToken) {
-        setUser(JSON.parse(storedUser));
-        setToken(storedToken);
-      } else {
-        // Default to student preset
-        const defaultUser = PRESET_USERS[0];
-        const defaultToken = `mock_jwt_token_${defaultUser.id}`;
-        setUser(defaultUser);
-        setToken(defaultToken);
-        await AsyncStorage.setItem('@fixbee_user', JSON.stringify(defaultUser));
-        await AsyncStorage.setItem('@fixbee_token', defaultToken);
+      if (storedUser && isSignedAccessToken(storedToken)) {
+        const parsedUser = JSON.parse(storedUser);
+        if (!parsedUser?.id || !parsedUser?.role) {
+          throw new Error('Stored account is missing required profile data.');
+        }
+        try {
+          const response = await apiService.get('/auth/me');
+          const currentToken = await AsyncStorage.getItem('@fixbee_token');
+          const verifiedUser = response?.data?.user;
+          if (!verifiedUser?.id || !verifiedUser?.role) {
+            throw new Error('The server did not return a valid user profile.');
+          }
+          const currentUser = { ...parsedUser, ...verifiedUser };
+          await AsyncStorage.setItem('@fixbee_user', JSON.stringify(currentUser));
+          setUser(currentUser);
+          setToken(currentToken || storedToken);
+        } catch (error) {
+          if (error.status === 401 || error.status === 403) {
+            await AsyncStorage.multiRemove([
+              '@fixbee_user',
+              '@fixbee_token',
+              '@fixbee_refresh_token',
+            ]);
+          } else {
+            setUser(parsedUser);
+            setToken(storedToken);
+            console.warn('Could not verify the stored session with the server.', error);
+          }
+        }
+      } else if (storedUser || storedToken) {
+        await AsyncStorage.multiRemove([
+          '@fixbee_user',
+          '@fixbee_token',
+          '@fixbee_refresh_token',
+        ]);
       }
     } catch (e) {
       console.error('Failed to restore session', e);
@@ -99,38 +81,76 @@ export const AuthProvider = ({ children }) => {
     await AsyncStorage.removeItem('@fixbee_intro_seen');
   };
 
-  const signInWithGoogle = async (selectedPresetUser = null) => {
-    setIsLoading(true);
+  const signInWithGoogle = async (idToken) => {
     try {
-      const profile = selectedPresetUser || PRESET_USERS[0];
-      const jwtToken = `jwt_${profile.role}_${profile.id}_${Date.now()}`;
+      if (!idToken) {
+        throw new Error('Google did not return an ID token.');
+      }
 
-      await AsyncStorage.setItem('@fixbee_user', JSON.stringify(profile));
-      await AsyncStorage.setItem('@fixbee_token', jwtToken);
+      const payload = await apiService.post('/auth/google', { idToken });
+      const data = payload?.data;
+      if (!data?.user || !data?.accessToken || !data?.refreshToken) {
+        throw new Error('The server did not return a valid authenticated session.');
+      }
 
-      setUser(profile);
-      setToken(jwtToken);
-      return { success: true, user: profile };
+      await AsyncStorage.multiSet([
+        ['@fixbee_user', JSON.stringify(data.user)],
+        ['@fixbee_token', data.accessToken],
+        ['@fixbee_refresh_token', data.refreshToken],
+      ]);
+
+      setUser(data.user);
+      setToken(data.accessToken);
+      return { success: true, user: data.user };
     } catch (err) {
       return { success: false, error: err.message };
-    } finally {
-      setIsLoading(false);
     }
-  };
-
-  const switchRole = async (targetRole) => {
-    const matched = PRESET_USERS.find((u) => u.role === targetRole) || PRESET_USERS[0];
-    await signInWithGoogle(matched);
   };
 
   const signOut = async () => {
     try {
-      await AsyncStorage.removeItem('@fixbee_user');
-      await AsyncStorage.removeItem('@fixbee_token');
+      const accessToken = token || await AsyncStorage.getItem('@fixbee_token');
+
+      if (accessToken) {
+        try {
+          const pushToken = await AsyncStorage.getItem('@fixbee_push_token');
+          if (pushToken) {
+            await apiService.delete('/notifications/push-token', { token: pushToken });
+          }
+        } catch (err) {
+          console.warn('Could not unregister the push token during sign out.', err);
+        }
+
+        try {
+          await apiService.post('/auth/logout', {});
+        } catch (err) {
+          console.warn('Could not revoke the server session during sign out.', err);
+        }
+      }
+    } catch (err) {
+      console.warn('Could not read the stored session during sign out.', err);
+    } finally {
+      if (Platform.OS !== 'web') {
+        try {
+          const { GoogleSignin } = await import('@react-native-google-signin/google-signin');
+          await GoogleSignin.signOut();
+        } catch (err) {
+          console.warn('Could not clear the native Google account session.', err);
+        }
+      }
+
+      try {
+        await AsyncStorage.multiRemove([
+          '@fixbee_user',
+          '@fixbee_token',
+          '@fixbee_refresh_token',
+          '@fixbee_push_token',
+        ]);
+      } catch (err) {
+        console.error('Could not clear the stored session.', err);
+      }
       setUser(null);
       setToken(null);
-    } catch (err) {
-      console.error('Error signing out', err);
     }
   };
 
@@ -145,9 +165,7 @@ export const AuthProvider = ({ children }) => {
         completeIntro,
         resetIntro,
         signInWithGoogle,
-        switchRole,
         signOut,
-        presetUsers: PRESET_USERS,
       }}
     >
       {children}

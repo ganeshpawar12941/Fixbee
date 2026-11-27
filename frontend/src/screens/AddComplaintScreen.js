@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -15,48 +15,35 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Categories, LocationTypes, SeverityLevels } from '../theme/colors';
-import { useAuth } from '../context/AuthContext';
 import { useComplaints } from '../context/ComplaintsContext';
 
-export default function AddComplaintScreen({ onSuccessNavigation }) {
-  const { user } = useAuth();
-  const { createComplaint, generateAIDetails } = useComplaints();
+export default function AddComplaintScreen({ onSuccessNavigation, complaintToEdit }) {
+  const { createComplaint, updateComplaint, generateAIDetails, getStudentDashboardData } = useComplaints();
+  const isEditing = Boolean(complaintToEdit);
+  const monthlyUsage = getStudentDashboardData().monthlyUsage;
+  const reachedMonthlyLimit = !isEditing && monthlyUsage.remaining <= 0;
 
-  const [imageUri, setImageUri] = useState(null);
+  const [imageUri, setImageUri] = useState(complaintToEdit?.imageUrl || null);
   const [quickPrompt, setQuickPrompt] = useState('');
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
 
   // Form Fields matching backend schema
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('electrical');
-  const [locationType, setLocationType] = useState('campus');
-  const [severity, setSeverity] = useState('medium');
+  const [category, setCategory] = useState(complaintToEdit?.category || 'electrical');
+  const [locationType, setLocationType] = useState(complaintToEdit?.locationType || 'campus');
+  const [severity, setSeverity] = useState(complaintToEdit?.severity || 'medium');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Pick Image from Gallery
-  const pickImage = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Camera roll permissions are required to upload incident photos.');
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 0.8,
-        aspect: [4, 3],
-      });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setImageUri(result.assets[0].uri);
-      }
-    } catch {
-      Alert.alert('Error', 'Failed to pick image');
-    }
-  };
+  useEffect(() => {
+    setImageUri(complaintToEdit?.imageUrl || null);
+    setTitle(complaintToEdit?.title || '');
+    setDescription(complaintToEdit?.description || '');
+    setCategory(complaintToEdit?.category || 'electrical');
+    setLocationType(complaintToEdit?.locationType || 'campus');
+    setSeverity(complaintToEdit?.severity || 'medium');
+    setQuickPrompt('');
+  }, [complaintToEdit]);
 
   // Capture Image with Camera
   const takePhoto = async () => {
@@ -83,7 +70,7 @@ export default function AddComplaintScreen({ onSuccessNavigation }) {
 
   // AI Auto-Fill Trigger
   const handleAIGenerate = async () => {
-    if (!imageUri) {
+    if (!isEditing && !imageUri) {
       Alert.alert('Photo Required', 'Please attach an issue photo before using FixBee AI assist.');
       return;
     }
@@ -113,7 +100,15 @@ export default function AddComplaintScreen({ onSuccessNavigation }) {
 
   // Form Validation & Submission
   const handleSubmit = async () => {
-    if (!imageUri) {
+    if (reachedMonthlyLimit) {
+      Alert.alert(
+        'Monthly Limit Reached',
+        `You have already submitted ${monthlyUsage.limit} complaints this month.`
+      );
+      return;
+    }
+
+    if (!isEditing && !imageUri) {
       Alert.alert('Photo Evidence Missing', 'A clear photograph of the defect is required to submit a complaint.');
       return;
     }
@@ -135,18 +130,29 @@ export default function AddComplaintScreen({ onSuccessNavigation }) {
 
     setIsSubmitting(true);
     try {
-      await createComplaint({
-        title: title.trim(),
-        description: description.trim(),
-        category,
-        locationType,
-        severity,
-        imageUrl: imageUri,
-      });
+      if (isEditing) {
+        await updateComplaint(complaintToEdit._id || complaintToEdit.id, {
+          title: title.trim(),
+          description: description.trim(),
+          category,
+          severity,
+        });
+      } else {
+        await createComplaint({
+          title: title.trim(),
+          description: description.trim(),
+          category,
+          locationType,
+          severity,
+          imageUrl: imageUri,
+        });
+      }
 
       Alert.alert(
-        'Complaint Submitted',
-        'Your complaint has been submitted to the campus feed and dispatched to management.',
+        isEditing ? 'Complaint Updated' : 'Complaint Submitted',
+        isEditing
+          ? 'Your complaint details have been updated.'
+          : 'Your complaint has been submitted successfully.',
         [
           {
             text: 'View Feed',
@@ -177,30 +183,30 @@ export default function AddComplaintScreen({ onSuccessNavigation }) {
         <View style={styles.headerRow}>
           <View>
             <View style={styles.brandTitleRow}>
-              <Text style={styles.screenTitle}>Report An Issue</Text>
+              <Text style={styles.screenTitle}>{isEditing ? 'Edit Complaint' : 'Report An Issue'}</Text>
             </View>
-            <Text style={styles.screenSubtitle}>Notify campus authorities & facilities team</Text>
+            <Text style={styles.screenSubtitle}>
+              {isEditing ? 'Update details while your report is submitted' : 'Notify campus authorities & facilities team'}
+            </Text>
           </View>
         </View>
 
-        {/* Guard & Quota Alert Card */}
-        <View style={styles.quotaCard}>
-          <View style={styles.quotaItem}>
-            <Ionicons name="calendar-outline" size={14} color={Colors.primary} />
-            <Text style={styles.quotaText}>Monthly Limit: 10 reports</Text>
+        {!isEditing && (
+          <View style={styles.quotaCard}>
+            <View style={styles.quotaItem}>
+              <Ionicons name="calendar-outline" size={14} color={Colors.primary} />
+              <Text style={styles.quotaText}>
+                Monthly reports: {monthlyUsage.submitted}/{monthlyUsage.limit}
+              </Text>
+            </View>
+            <Text style={styles.quotaText}>{monthlyUsage.remaining} remaining</Text>
           </View>
-          <View style={styles.quotaDivider} />
-          <View style={styles.quotaItem}>
-            <Ionicons name="shield-checkmark" size={14} color="#22C55E" />
-            <Text style={styles.quotaText}>Image Strikes: 0/4 (Clean)</Text>
-          </View>
-        </View>
+        )}
 
-        {/* 1. Photo Picker Section */}
-        <View style={styles.sectionCard}>
+        {!isEditing && <View style={styles.sectionCard}>
           <Text style={styles.sectionHeader}>1. Incident Photograph *</Text>
           <Text style={styles.sectionHelper}>
-            Clear photographic evidence enables fast maintenance dispatch.
+            Take a clear photo of the issue. Gallery uploads are not available.
           </Text>
 
           {imageUri ? (
@@ -208,21 +214,15 @@ export default function AddComplaintScreen({ onSuccessNavigation }) {
               <Image source={{ uri: imageUri }} style={styles.previewImage} resizeMode="cover" />
               <TouchableOpacity
                 style={styles.changeImageBtn}
-                onPress={pickImage}
+                onPress={takePhoto}
                 activeOpacity={0.8}
               >
                 <Ionicons name="camera" size={14} color="#0A0A0C" />
-                <Text style={styles.changeImageText}>Change Photo</Text>
+                <Text style={styles.changeImageText}>Retake Photo</Text>
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={styles.photoActionRow}>
-              <TouchableOpacity style={styles.uploadBox} onPress={pickImage} activeOpacity={0.8}>
-                <Ionicons name="images-outline" size={26} color={Colors.primary} />
-                <Text style={styles.uploadBoxTitle}>Photo Gallery</Text>
-                <Text style={styles.uploadBoxSub}>Browse album</Text>
-              </TouchableOpacity>
-
+            <View>
               <TouchableOpacity style={styles.uploadBox} onPress={takePhoto} activeOpacity={0.8}>
                 <Ionicons name="camera-outline" size={26} color={Colors.primary} />
                 <Text style={styles.uploadBoxTitle}>Snap Photo</Text>
@@ -230,10 +230,9 @@ export default function AddComplaintScreen({ onSuccessNavigation }) {
               </TouchableOpacity>
             </View>
           )}
-        </View>
+        </View>}
 
-        {/* 2. FixBee AI Assist Card */}
-        <View style={styles.aiCard}>
+        {!isEditing && <View style={styles.aiCard}>
           <View style={styles.aiHeaderRow}>
             <View style={styles.aiBadge}>
               <Ionicons name="sparkles" size={14} color="#0A0A0C" />
@@ -272,11 +271,11 @@ export default function AddComplaintScreen({ onSuccessNavigation }) {
               </>
             )}
           </TouchableOpacity>
-        </View>
+        </View>}
 
         {/* 3. Report Details Form */}
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionHeader}>2. Report Details</Text>
+          <Text style={styles.sectionHeader}>{isEditing ? 'Complaint Details' : '2. Report Details'}</Text>
 
           {/* Title */}
           <View style={styles.inputGroup}>
@@ -342,8 +341,7 @@ export default function AddComplaintScreen({ onSuccessNavigation }) {
             </ScrollView>
           </View>
 
-          {/* Location Zone Picker */}
-          <View style={styles.inputGroup}>
+          {!isEditing && <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Campus Zone *</Text>
             <View style={styles.locationSelectorRow}>
               {LocationTypes.filter((l) => l.id !== 'all').map((loc) => {
@@ -369,7 +367,7 @@ export default function AddComplaintScreen({ onSuccessNavigation }) {
                 );
               })}
             </View>
-          </View>
+          </View>}
 
           {/* Urgency / Severity */}
           <View style={styles.inputGroup}>
@@ -410,16 +408,25 @@ export default function AddComplaintScreen({ onSuccessNavigation }) {
 
         {/* Submit Button */}
         <TouchableOpacity
-          style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
+          style={[
+            styles.submitButton,
+            (isSubmitting || reachedMonthlyLimit) && styles.submitButtonDisabled,
+          ]}
           onPress={handleSubmit}
-          disabled={isSubmitting}
+          disabled={isSubmitting || reachedMonthlyLimit}
           activeOpacity={0.85}
         >
           {isSubmitting ? (
             <ActivityIndicator size="small" color="#0A0A0C" />
           ) : (
             <>
-              <Text style={styles.submitButtonText}>Buzz Issue to FixBee Feed</Text>
+              <Text style={styles.submitButtonText}>
+                {reachedMonthlyLimit
+                  ? 'Monthly Report Limit Reached'
+                  : isEditing
+                  ? 'Save Complaint Changes'
+                  : 'Buzz Issue to FixBee Feed'}
+              </Text>
               <Ionicons name="arrow-forward" size={18} color="#0A0A0C" />
             </>
           )}
@@ -484,11 +491,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.textSecondary,
   },
-  quotaDivider: {
-    width: 1,
-    height: 18,
-    backgroundColor: '#2A2A38',
-  },
   sectionCard: {
     backgroundColor: Colors.bgCard,
     borderRadius: 14,
@@ -507,10 +509,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textMuted,
     marginBottom: 12,
-  },
-  photoActionRow: {
-    flexDirection: 'row',
-    gap: 12,
   },
   uploadBox: {
     flex: 1,
